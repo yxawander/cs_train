@@ -1,0 +1,397 @@
+# Windows 命令行解释器设计文档
+
+## 1. 实训任务概述
+
+本项目根据《Windows 命令行解释器设计》任务书要求，使用 C++ 语言设计并实现一个运行在 Windows 控制台下的命令行解释器。程序为用户提供类似 Windows Command 的文本交互界面，在提示符后读取用户输入，解析命令并执行对应功能。
+
+命令解释程序处于用户和操作系统内核之间。用户输入的命令由解释器识别后，解释器再通过 Windows API 调用操作系统提供的目录管理、文件遍历、进程管理等功能。对于内部命令，程序直接调用 Win32 API 完成；对于外部程序，程序使用 `CreateProcessW` 创建新进程，并通过 `WaitForSingleObject` 等待执行结束。
+
+本项目实现的核心内部命令包括：
+
+- `cd`：切换当前工作目录。
+- `dir`：显示目录中的文件、目录、大小、时间和磁盘剩余空间。
+- `history`：显示用户输入过的历史命令。
+- `exit`：退出命令解释器。
+- `tasklist`：显示系统当前进程信息。
+- `taskkill`：根据进程 PID 结束指定进程。
+
+此外，为了提高可用性，程序还实现了 `help`、`echo`、`pwd`、`cls` 等辅助命令。
+
+## 2. 系统需求分析
+
+### 2.1 功能需求
+
+程序需要满足以下功能需求：
+
+1. 以控制台方式运行，循环显示命令提示符。
+2. 提示符显示当前目录和 `>`，例如 `C:\Users\test>`。
+3. 能够读取一整行用户命令，支持带空格路径的双引号写法。
+4. 能够区分内部命令和外部命令。
+5. 内部命令由解释器自身完成，不依赖系统 `cmd` 的同名命令。
+6. 外部命令通过 Windows 进程创建 API 执行。
+7. 命令执行失败时给出明确错误提示。
+8. 保存历史命令，并通过 `history` 输出。
+9. 对进程句柄、快照句柄等系统资源及时关闭，避免资源泄漏。
+
+### 2.2 非功能需求
+
+程序还需要考虑以下非功能需求：
+
+- 稳定性：错误路径、错误 PID、权限不足、命令不存在等情况不能导致程序崩溃。
+- 可维护性：源码按命令解析、Shell 主体、Win32 工具函数分层。
+- 可读性：代码结构清晰，函数职责明确。
+- 中文路径支持：使用宽字符版本 Win32 API，例如 `CreateProcessW`、`FindFirstFileW`、`SetCurrentDirectoryW`。
+
+### 2.3 主要 Windows API
+
+本项目使用的主要 Win32 API 如下：
+
+| API | 用途 |
+| --- | --- |
+| `GetCurrentDirectoryW` | 获取当前工作目录，用于提示符和 `pwd` |
+| `SetCurrentDirectoryW` | 实现 `cd` 命令 |
+| `FindFirstFileW`、`FindNextFileW` | 遍历目录，实现 `dir` |
+| `GetVolumeInformationW` | 获取磁盘卷标和卷序列号 |
+| `GetDiskFreeSpaceExW` | 获取磁盘空间信息 |
+| `FileTimeToLocalFileTime`、`FileTimeToSystemTime` | 转换文件时间 |
+| `CreateToolhelp32Snapshot` | 获取进程快照 |
+| `Process32FirstW`、`Process32NextW` | 遍历进程快照 |
+| `OpenProcess` | 打开指定 PID 的进程 |
+| `TerminateProcess` | 结束指定进程 |
+| `CreateProcessW` | 执行外部命令 |
+| `WaitForSingleObject` | 等待外部进程结束 |
+| `GetExitCodeProcess` | 获取外部进程退出码 |
+| `FormatMessageW` | 把 Windows 错误码转换成可读错误信息 |
+| `CloseHandle` | 关闭进程、线程、快照等句柄 |
+
+## 3. 系统设计
+
+### 3.1 总体流程
+
+程序启动后进入主循环，流程如下：
+
+1. 调用 `GetCurrentDirectoryW` 获取当前目录。
+2. 输出提示符：`当前目录>`。
+3. 使用 `std::getline(std::wcin, line)` 读取一行命令。
+4. 去除首尾空白并解析命令名和参数。
+5. 将非空命令保存到历史记录。
+6. 判断是否为内部命令。
+7. 如果是内部命令，调用对应处理函数。
+8. 如果不是内部命令，调用 `CreateProcessW` 执行外部程序。
+9. 命令执行结束后返回第 1 步。
+10. 输入 `exit` 后退出循环并结束程序。
+
+### 3.2 模块划分
+
+项目分为三个主要模块：
+
+| 模块 | 文件 | 职责 |
+| --- | --- | --- |
+| 命令解析模块 | `CommandParser.h/.cpp` | 去除空白、按空格和双引号解析命令、转换命令名大小写 |
+| Shell 主控模块 | `Shell.h/.cpp` | 主循环、提示符、历史记录、内部命令分发、外部命令执行 |
+| Win32 工具模块 | `WinUtil.h/.cpp` | 当前目录、路径处理、错误消息、文件时间、数字格式化等工具函数 |
+
+这种分层方式可以减少单个文件的复杂度，也便于在报告中说明系统结构。
+
+### 3.3 命令解析设计
+
+命令解析器支持普通空格分隔和双引号路径。例如：
+
+```text
+cd "C:\Program Files"
+dir "*.cpp"
+taskkill /PID 1234
+```
+
+解析后得到：
+
+- `name`：命令名，统一转换为小写，便于忽略大小写匹配。
+- `args`：参数列表。
+- `original`：原始命令行，用于外部命令执行。
+
+双引号不会保留在参数中，因此 `cd "C:\Program Files"` 的路径参数是 `C:\Program Files`。
+
+### 3.4 内部命令设计
+
+#### cd
+
+`cd` 使用 `SetCurrentDirectoryW` 修改当前进程目录。因为当前目录属于 Shell 进程自身状态，所以必须作为内部命令实现。如果把 `cd` 交给子进程执行，只会改变子进程目录，Shell 自身目录不会改变。
+
+支持形式：
+
+```text
+cd
+cd ..
+cd C:\Windows
+cd /d D:\test
+```
+
+错误处理：
+
+- 路径不存在时输出错误。
+- `/d` 后缺少路径时输出错误。
+
+#### dir
+
+`dir` 使用 `FindFirstFileW` 和 `FindNextFileW` 遍历目录项，显示文件时间、目录标记、文件大小和文件名。使用 `GetVolumeInformationW` 显示卷标和卷序列号，使用 `GetDiskFreeSpaceExW` 显示磁盘剩余空间。
+
+支持形式：
+
+```text
+dir
+dir C:\Windows
+dir *.cpp
+dir "C:\Program Files"
+```
+
+错误处理：
+
+- 目录不存在或无法访问时输出 Windows 错误信息。
+- 遍历过程中发生错误时输出错误信息。
+
+#### history
+
+Shell 在执行每一条非空命令前，将原始命令加入 `history_` 向量。输入 `history` 时按序号输出全部历史命令。
+
+支持形式：
+
+```text
+history
+history clear
+```
+
+#### exit
+
+`exit` 将 Shell 主循环状态设置为结束。如果提供数字参数，则作为程序退出码。
+
+支持形式：
+
+```text
+exit
+exit 0
+exit 1
+```
+
+#### tasklist
+
+`tasklist` 使用 `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)` 获取系统进程快照，再通过 `Process32FirstW` 和 `Process32NextW` 遍历进程信息。
+
+输出字段包括：
+
+- 进程名。
+- PID。
+- 线程数。
+- 父进程 PID。
+
+#### taskkill
+
+`taskkill` 根据用户输入的 PID 调用 `OpenProcess` 打开目标进程，再调用 `TerminateProcess` 结束进程。
+
+支持形式：
+
+```text
+taskkill 1234
+taskkill /PID 1234
+```
+
+错误处理：
+
+- PID 非数字时输出错误。
+- PID 为 0 时输出错误。
+- 拒绝结束当前 Shell 自身进程。
+- 权限不足或进程不存在时输出 Windows 错误信息。
+
+### 3.5 外部命令设计
+
+当用户输入的命令不是内部命令时，Shell 使用 `CreateProcessW` 创建外部进程，并用 `WaitForSingleObject` 等待外部命令执行结束。执行完成后调用 `GetExitCodeProcess` 保存退出码。
+
+如果直接 `CreateProcessW` 失败，程序会尝试通过 `ComSpec` 环境变量找到系统 `cmd.exe`，再使用：
+
+```text
+cmd.exe /C 原始命令
+```
+
+作为兼容执行方式。这样可以兼容部分批处理命令和系统命令，同时本项目要求的核心内部命令仍由 Shell 自己调用 Win32 API 实现。
+
+## 4. 系统实现与测试
+
+### 4.1 编译环境
+
+推荐环境：
+
+- Windows 10 或 Windows 11。
+- MinGW-w64 g++，支持 C++17。
+- CMake 3.16 或以上。
+
+### 4.2 编译命令
+
+使用 CMake：
+
+```powershell
+cd C:\Users\17002\Desktop\cs_train\code
+cmake -S . -B build -G "MinGW Makefiles"
+cmake --build build
+.\build\winshell.exe
+```
+
+直接使用 g++：
+
+```powershell
+cd C:\Users\17002\Desktop\cs_train\code
+g++ -std=c++17 -Wall -Wextra -Iinclude src\main.cpp src\CommandParser.cpp src\Shell.cpp src\WinUtil.cpp -o winshell.exe
+.\winshell.exe
+```
+
+### 4.3 测试用例
+
+#### 测试 1：启动和退出
+
+输入：
+
+```text
+exit
+```
+
+预期结果：
+
+- 程序正常退出。
+- 无异常崩溃。
+
+#### 测试 2：显示当前目录
+
+输入：
+
+```text
+cd
+pwd
+```
+
+预期结果：
+
+- `cd` 不带参数时输出当前目录。
+- `pwd` 输出当前目录。
+
+#### 测试 3：切换目录
+
+输入：
+
+```text
+cd ..
+cd 不存在的目录
+```
+
+预期结果：
+
+- `cd ..` 后提示符目录发生变化。
+- 不存在目录输出错误提示，Shell 继续运行。
+
+#### 测试 4：目录列表
+
+输入：
+
+```text
+dir
+dir .
+dir "*.cpp"
+```
+
+预期结果：
+
+- 显示目录文件和子目录。
+- 显示文件大小、修改时间、文件数、目录数和剩余空间。
+- 通配符能够正常筛选。
+
+#### 测试 5：历史命令
+
+输入：
+
+```text
+cd
+dir
+history
+history clear
+history
+```
+
+预期结果：
+
+- 第一次 `history` 能看到之前输入过的命令。
+- `history clear` 后历史记录被清空。
+
+#### 测试 6：进程列表
+
+输入：
+
+```text
+tasklist
+```
+
+预期结果：
+
+- 显示当前系统进程。
+- 至少包含进程名、PID、线程数、父进程 PID。
+
+#### 测试 7：结束进程
+
+建议先手动启动一个可关闭的测试进程，例如记事本：
+
+```powershell
+notepad
+```
+
+在 Shell 中输入：
+
+```text
+tasklist
+taskkill /PID 记事本进程PID
+```
+
+预期结果：
+
+- `tasklist` 中能找到 `notepad.exe`。
+- `taskkill` 执行后记事本退出。
+
+#### 测试 8：外部命令
+
+输入：
+
+```text
+ipconfig
+where cmd
+echo %ERRORLEVEL%
+```
+
+预期结果：
+
+- 外部命令能够创建进程并执行。
+- `%ERRORLEVEL%` 输出上一条命令的退出码。
+
+### 4.4 错误处理说明
+
+本项目对常见错误进行了处理：
+
+- 命令为空：忽略并重新显示提示符。
+- 路径不存在：输出 `SetCurrentDirectoryW` 或 `FindFirstFileW` 的错误信息。
+- 命令不存在：输出命令执行失败原因。
+- 进程快照创建失败：输出错误信息。
+- PID 非法：提示 PID 无效。
+- 进程无法打开：提示可能不存在或权限不足。
+- 句柄使用完毕后调用 `CloseHandle` 释放。
+
+## 5. 实训小结
+
+通过本项目可以理解命令解释器的基本工作方式：读取用户命令、解析命令、识别内部命令、调用操作系统 API 或创建外部进程。与 Linux Shell 中常见的 `fork`、`exec`、`wait` 不同，Windows 下更常用 `CreateProcess` 创建进程，使用 `WaitForSingleObject` 等待进程结束。
+
+设计过程中需要重点处理内部命令和外部命令的区别。`cd` 必须由 Shell 自身处理，因为当前目录是当前进程状态；进程列表和进程结束也需要直接调用 Windows API 才能体现本实训对系统调用的要求。
+
+本项目使用宽字符版本 API，提高了中文路径和带空格路径的兼容性。通过模块化设计，命令解析、Shell 逻辑和 Win32 工具函数相互分离，后续可以继续扩展更多内部命令，例如 `copy`、`del`、`mkdir`、`rmdir` 等。
+
+## 6. 参考文献
+
+1. 《Windows 命令行解释器设计》任务书。
+2. 《Windows command.PDF》实验资料。
+3. Microsoft Learn: Windows API Documentation.
+4. Microsoft Learn: CreateProcessW function.
+5. Microsoft Learn: Tool Help Library.
+6. Microsoft Learn: File Management Functions.
+
