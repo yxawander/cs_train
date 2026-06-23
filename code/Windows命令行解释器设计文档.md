@@ -15,7 +15,7 @@
 - `tasklist`：显示系统当前进程信息。
 - `taskkill`：根据进程 PID 结束指定进程。
 
-此外，为了提高可用性，程序还实现了 `help`、`echo`、`pwd`、`cls` 等辅助命令。
+此外，为了提高可用性和完整性，程序还扩展实现了 `mkdir`、`rmdir`、`del`、`copy`、`move`、`type`、`set`、`date`、`time`、`ver`、`help`、`echo`、`pwd`、`cls`、`clear`、`!!` 等命令，使解释器具备更完整的文件管理、环境变量管理、历史命令复用和系统信息显示能力。
 
 ## 2. 系统需求分析
 
@@ -32,6 +32,9 @@
 7. 命令执行失败时给出明确错误提示。
 8. 保存历史命令，并通过 `history` 输出。
 9. 对进程句柄、快照句柄等系统资源及时关闭，避免资源泄漏。
+10. 支持常见文件管理命令，包括目录创建、目录删除、文件删除、复制、移动和文本查看。
+11. 支持环境变量查询、设置、删除和 `echo` 中的变量展开。
+12. 支持进程列表过滤和按进程名结束进程。
 
 ### 2.2 非功能需求
 
@@ -63,6 +66,15 @@
 | `GetExitCodeProcess` | 获取外部进程退出码 |
 | `FormatMessageW` | 把 Windows 错误码转换成可读错误信息 |
 | `CloseHandle` | 关闭进程、线程、快照等句柄 |
+| `CreateDirectoryW` | 创建目录，实现 `mkdir` |
+| `RemoveDirectoryW` | 删除空目录，实现 `rmdir` |
+| `DeleteFileW` | 删除文件，实现 `del` |
+| `CopyFileW` | 复制文件，实现 `copy` |
+| `MoveFileExW` | 移动或重命名文件、目录，实现 `move` |
+| `CreateFileW`、`ReadFile` | 打开并读取文本文件，实现 `type` |
+| `GetEnvironmentVariableW`、`SetEnvironmentVariableW` | 查询和设置环境变量 |
+| `GetEnvironmentStringsW`、`FreeEnvironmentStringsW` | 枚举环境变量 |
+| `GetLocalTime` | 获取本地日期和时间 |
 
 ## 3. 系统设计
 
@@ -151,13 +163,15 @@ dir "C:\Program Files"
 
 #### history
 
-Shell 在执行每一条非空命令前，将原始命令加入 `history_` 向量。输入 `history` 时按序号输出全部历史命令。
+Shell 在执行每一条非空命令前，将原始命令加入 `history_` 向量。输入 `history` 时按序号输出全部历史命令。增强版支持 `history n` 显示最近 n 条命令，也支持 `!!` 复用上一条命令。
 
 支持形式：
 
 ```text
 history
+history 5
 history clear
+!!
 ```
 
 #### exit
@@ -183,15 +197,25 @@ exit 1
 - 线程数。
 - 父进程 PID。
 
+增强版支持进程名关键字过滤，例如：
+
+```text
+tasklist chrome
+tasklist notepad
+```
+
 #### taskkill
 
-`taskkill` 根据用户输入的 PID 调用 `OpenProcess` 打开目标进程，再调用 `TerminateProcess` 结束进程。
+`taskkill` 根据用户输入的 PID 调用 `OpenProcess` 打开目标进程，再调用 `TerminateProcess` 结束进程。增强版同时支持 `/IM` 按进程名结束进程，并兼容 `/F` 参数。
 
 支持形式：
 
 ```text
 taskkill 1234
 taskkill /PID 1234
+taskkill /PID 1234 /F
+taskkill /IM notepad.exe
+taskkill /IM notepad.exe /F
 ```
 
 错误处理：
@@ -200,6 +224,55 @@ taskkill /PID 1234
 - PID 为 0 时输出错误。
 - 拒绝结束当前 Shell 自身进程。
 - 权限不足或进程不存在时输出 Windows 错误信息。
+
+#### 文件管理扩展命令
+
+为了使解释器更接近实际命令行工具，本项目扩展实现了常见文件管理命令：
+
+| 命令 | 实现 API | 功能 |
+| --- | --- | --- |
+| `mkdir <dir>` / `md <dir>` | `CreateDirectoryW` | 创建目录 |
+| `rmdir <dir>` / `rd <dir>` | `RemoveDirectoryW` | 删除空目录 |
+| `del <file>` / `erase <file>` | `DeleteFileW` | 删除文件，支持通配符批量删除普通文件 |
+| `copy <src> <dst>` | `CopyFileW` | 复制文件 |
+| `move <src> <dst>` | `MoveFileExW` | 移动或重命名文件、目录 |
+| `type <file>` | `CreateFileW`、`ReadFile` | 显示文本文件内容 |
+
+其中 `type` 对 UTF-16LE BOM、UTF-8 BOM 和系统默认 ANSI 文本做了基本兼容。为了避免误把超大文件输出到控制台，单次显示文件大小限制为 32MB。
+
+#### 环境变量命令
+
+`set` 用于管理当前 Shell 进程的环境变量：
+
+```text
+set
+set PATH
+set DEMO=hello
+set DEMO=
+```
+
+`set` 不带参数时使用 `GetEnvironmentStringsW` 枚举环境变量；`set NAME` 使用 `GetEnvironmentVariableW` 查询指定变量；`set NAME=VALUE` 使用 `SetEnvironmentVariableW` 设置变量；`set NAME=` 删除变量。
+
+`echo` 支持变量展开：
+
+```text
+echo %ERRORLEVEL%
+echo %CD%
+echo %PATH%
+echo %DEMO%
+```
+
+其中 `%ERRORLEVEL%` 输出上一条命令退出码，`%CD%` 输出当前目录，其他变量通过 `GetEnvironmentVariableW` 查询。
+
+#### 系统信息和辅助命令
+
+增强版还实现了以下辅助命令：
+
+- `date`：使用 `GetLocalTime` 显示当前日期。
+- `time`：使用 `GetLocalTime` 显示当前时间。
+- `ver`：显示解释器版本、用户名和计算机名。
+- `help [command]`：显示总体帮助或指定命令帮助。
+- `clear`：作为 `cls` 的别名。
 
 ### 3.5 外部命令设计
 
@@ -309,6 +382,8 @@ dir "*.cpp"
 cd
 dir
 history
+history 2
+!!
 history clear
 history
 ```
@@ -316,6 +391,8 @@ history
 预期结果：
 
 - 第一次 `history` 能看到之前输入过的命令。
+- `history 2` 只显示最近两条历史命令。
+- `!!` 能重新执行上一条命令。
 - `history clear` 后历史记录被清空。
 
 #### 测试 6：进程列表
@@ -324,12 +401,14 @@ history
 
 ```text
 tasklist
+tasklist notepad
 ```
 
 预期结果：
 
 - 显示当前系统进程。
 - 至少包含进程名、PID、线程数、父进程 PID。
+- 带关键字时只显示匹配进程，并输出匹配数量。
 
 #### 测试 7：结束进程
 
@@ -344,6 +423,7 @@ notepad
 ```text
 tasklist
 taskkill /PID 记事本进程PID
+taskkill /IM notepad.exe /F
 ```
 
 预期结果：
@@ -351,7 +431,44 @@ taskkill /PID 记事本进程PID
 - `tasklist` 中能找到 `notepad.exe`。
 - `taskkill` 执行后记事本退出。
 
-#### 测试 8：外部命令
+#### 测试 8：文件管理命令
+
+输入：
+
+```text
+mkdir testdir
+copy README.md testdir\README-copy.md
+type testdir\README-copy.md
+move testdir\README-copy.md testdir\README-moved.md
+del testdir\README-moved.md
+rmdir testdir
+```
+
+预期结果：
+
+- 目录能够创建和删除。
+- 文件能够复制、显示、移动和删除。
+- 错误路径会给出明确错误信息。
+
+#### 测试 9：环境变量命令
+
+输入：
+
+```text
+set DEMO=hello
+echo %DEMO%
+set DEMO
+set DEMO=
+echo %DEMO%
+```
+
+预期结果：
+
+- `echo %DEMO%` 能输出 `hello`。
+- `set DEMO` 能输出 `DEMO=hello`。
+- 删除变量后，`echo %DEMO%` 保留原样或显示为空变量状态。
+
+#### 测试 10：外部命令
 
 输入：
 
@@ -376,6 +493,9 @@ echo %ERRORLEVEL%
 - 进程快照创建失败：输出错误信息。
 - PID 非法：提示 PID 无效。
 - 进程无法打开：提示可能不存在或权限不足。
+- 文件操作失败：输出 Windows API 返回的错误信息。
+- 环境变量不存在或设置失败：输出对应错误信息。
+- 命令历史数量参数非法：输出错误信息。
 - 句柄使用完毕后调用 `CloseHandle` 释放。
 
 ## 5. 实训小结
@@ -384,7 +504,7 @@ echo %ERRORLEVEL%
 
 设计过程中需要重点处理内部命令和外部命令的区别。`cd` 必须由 Shell 自身处理，因为当前目录是当前进程状态；进程列表和进程结束也需要直接调用 Windows API 才能体现本实训对系统调用的要求。
 
-本项目使用宽字符版本 API，提高了中文路径和带空格路径的兼容性。通过模块化设计，命令解析、Shell 逻辑和 Win32 工具函数相互分离，后续可以继续扩展更多内部命令，例如 `copy`、`del`、`mkdir`、`rmdir` 等。
+本项目使用宽字符版本 API，提高了中文路径和带空格路径的兼容性。通过模块化设计，命令解析、Shell 逻辑和 Win32 工具函数相互分离。增强版在基础任务要求之上扩展了文件系统命令、环境变量命令、历史命令复用、进程过滤和按进程名终止等功能，更接近实际 Windows 命令解释器的使用体验。
 
 ## 6. 参考文献
 
@@ -394,4 +514,3 @@ echo %ERRORLEVEL%
 4. Microsoft Learn: CreateProcessW function.
 5. Microsoft Learn: Tool Help Library.
 6. Microsoft Learn: File Management Functions.
-
