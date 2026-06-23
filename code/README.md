@@ -33,14 +33,14 @@ g++ -std=c++17 -Wall -Wextra -Iinclude src\main.cpp src\CommandParser.cpp src\Sh
 | 命令 | 功能 |
 | --- | --- |
 | `cd [path]` | 切换或显示当前目录 |
-| `dir [path|wildcard]` | 显示目录内容、文件大小、目录数、磁盘剩余空间 |
+| `dir [path\|wildcard]` | 显示目录内容、文件大小、目录数、磁盘剩余空间 |
 | `mkdir <dir>` / `md <dir>` | 创建目录 |
 | `rmdir <dir>` / `rd <dir>` | 删除空目录 |
-| `del <file|wildcard>` / `erase <file|wildcard>` | 删除文件，支持通配符 |
+| `del <file\|wildcard>` / `erase <file\|wildcard>` | 删除文件，支持通配符 |
 | `copy <src> <dst>` | 复制文件 |
 | `move <src> <dst>` | 移动或重命名文件、目录 |
 | `type <file>` | 显示文本文件内容 |
-| `history [n|clear]` | 显示历史命令、最近 n 条命令或清空历史 |
+| `history [n\|clear]` | 显示历史命令、最近 n 条命令或清空历史 |
 | `!!` | 执行上一条命令 |
 | `exit [code]` | 退出解释器 |
 | `tasklist [keyword]` | 显示系统当前进程信息，可按进程名过滤 |
