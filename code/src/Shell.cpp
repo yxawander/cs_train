@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <csignal>
 #include <cwchar>
 #include <cstdlib>
 #include <iomanip>
@@ -117,58 +118,40 @@ std::wstring expandEnvironmentReferences(const std::wstring& text, int lastExitC
     return result;
 }
 
-// 将读取到的文件字节转换为宽字符文本，兼容 UTF-16LE、UTF-8 BOM 和系统 ANSI。
+// 将读取到的 UTF-8 文件字节转换为宽字符文本，兼容 UTF-8 BOM。
 std::wstring bytesToText(const std::vector<char>& bytes) {
     if (bytes.empty()) {
         return L"";
     }
 
-    if (bytes.size() >= 2 &&
-        static_cast<unsigned char>(bytes[0]) == 0xFF &&
-        static_cast<unsigned char>(bytes[1]) == 0xFE) {
-        std::wstring text;
-        for (std::size_t i = 2; i + 1 < bytes.size(); i += 2) {
-            wchar_t ch = static_cast<unsigned char>(bytes[i]) |
-                         (static_cast<unsigned char>(bytes[i + 1]) << 8);
-            text.push_back(ch);
-        }
-        return text;
-    }
-
-    UINT codePage = CP_ACP;
-    DWORD flags = 0;
     std::size_t offset = 0;
     if (bytes.size() >= 3 &&
         static_cast<unsigned char>(bytes[0]) == 0xEF &&
         static_cast<unsigned char>(bytes[1]) == 0xBB &&
         static_cast<unsigned char>(bytes[2]) == 0xBF) {
-        codePage = CP_UTF8;
-        flags = MB_ERR_INVALID_CHARS;
         offset = 3;
     }
 
     int inputSize = static_cast<int>(bytes.size() - offset);
-    int required = MultiByteToWideChar(codePage, flags, bytes.data() + offset, inputSize, nullptr, 0);
-    if (required == 0 && codePage != CP_UTF8) {
-        codePage = CP_UTF8;
-        flags = MB_ERR_INVALID_CHARS;
-        required = MultiByteToWideChar(codePage, flags, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
-        offset = 0;
-        inputSize = static_cast<int>(bytes.size());
-    }
-    if (required == 0) {
-        codePage = CP_ACP;
-        flags = 0;
-        offset = 0;
-        inputSize = static_cast<int>(bytes.size());
-        required = MultiByteToWideChar(codePage, flags, bytes.data(), inputSize, nullptr, 0);
-    }
+    int required = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        bytes.data() + offset,
+        inputSize,
+        nullptr,
+        0);
     if (required == 0) {
         return L"";
     }
 
     std::wstring text(required, L'\0');
-    MultiByteToWideChar(codePage, flags, bytes.data() + offset, inputSize, text.data(), required);
+    MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        bytes.data() + offset,
+        inputSize,
+        text.data(),
+        required);
     return text;
 }
 
@@ -225,11 +208,18 @@ BOOL WINAPI consoleCtrlHandler(DWORD ctrlType) {
     return FALSE;
 }
 
+// 兜底处理 C 运行库收到的 Ctrl+C 信号，避免按默认行为直接结束进程。
+void signalInterruptHandler(int) {
+    g_ctrlInterrupted.store(true);
+    std::signal(SIGINT, signalInterruptHandler);
+}
+
 } // namespace
 
 // Shell 主循环：显示提示符、读取输入、执行命令。
 int Shell::run() {
     SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
+    std::signal(SIGINT, signalInterruptHandler);
 
     while (running_) {
         printPrompt();
