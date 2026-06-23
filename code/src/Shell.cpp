@@ -148,8 +148,9 @@ void Shell::cmdCd(const ParsedCommand& command) {
     }
 
     if (!SetCurrentDirectoryW(target.c_str())) {
+        DWORD errorCode = GetLastError();
         std::wcerr << L"cd: cannot change directory to \"" << target << L"\": "
-                   << winutil::getLastErrorMessage() << L"\n";
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
         lastExitCode_ = 1;
         return;
     }
@@ -175,21 +176,22 @@ void Shell::cmdDir(const ParsedCommand& command) {
     if (!volumeRoot.empty() &&
         GetVolumeInformationW(volumeRoot.c_str(), volumeName, MAX_PATH, &serialNumber,
                               nullptr, nullptr, fileSystemName, MAX_PATH)) {
-        std::wcout << L" Volume in drive " << volumeRoot.substr(0, 2);
+        std::wcout << L"Volume in drive " << volumeRoot.substr(0, 2);
         if (volumeName[0] != L'\0') {
             std::wcout << L" is " << volumeName;
         }
-        std::wcout << L"\n Volume Serial Number is "
+        std::wcout << L"\nVolume Serial Number is "
                    << winutil::formatVolumeSerial(serialNumber) << L"\n\n";
     }
 
-    std::wcout << L" Directory of " << listingDir << L"\n\n";
+    std::wcout << L"Directory of " << listingDir << L"\n\n";
 
     WIN32_FIND_DATAW data = {};
     HANDLE find = FindFirstFileW(pattern.c_str(), &data);
     if (find == INVALID_HANDLE_VALUE) {
+        DWORD errorCode = GetLastError();
         std::wcerr << L"dir: cannot open \"" << target << L"\": "
-                   << winutil::getLastErrorMessage() << L"\n";
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
         lastExitCode_ = 1;
         return;
     }
@@ -229,9 +231,9 @@ void Shell::cmdDir(const ParsedCommand& command) {
     }
 
     std::wcout << L"\n"
-               << std::setw(16) << fileCount << L" File(s) "
-               << std::setw(16) << winutil::formatUnsigned(totalBytes) << L" bytes\n"
-               << std::setw(16) << dirCount << L" Dir(s)  ";
+               << fileCount << L" File(s) "
+               << winutil::formatUnsigned(totalBytes) << L" bytes\n"
+               << dirCount << L" Dir(s) ";
 
     ULARGE_INTEGER freeBytesAvailable = {};
     ULARGE_INTEGER totalBytesOnDisk = {};
@@ -267,8 +269,9 @@ void Shell::cmdHistory(const ParsedCommand& command) {
 void Shell::cmdTasklist() {
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) {
+        DWORD errorCode = GetLastError();
         std::wcerr << L"tasklist: cannot create process snapshot: "
-                   << winutil::getLastErrorMessage() << L"\n";
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
         lastExitCode_ = 1;
         return;
     }
@@ -276,8 +279,9 @@ void Shell::cmdTasklist() {
     PROCESSENTRY32W entry = {};
     entry.dwSize = sizeof(entry);
     if (!Process32FirstW(snapshot, &entry)) {
+        DWORD errorCode = GetLastError();
         std::wcerr << L"tasklist: cannot read process snapshot: "
-                   << winutil::getLastErrorMessage() << L"\n";
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
         CloseHandle(snapshot);
         lastExitCode_ = 1;
         return;
@@ -344,15 +348,17 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
 
     HANDLE process = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
     if (process == nullptr) {
+        DWORD errorCode = GetLastError();
         std::wcerr << L"taskkill: cannot open process " << pid << L": "
-                   << winutil::getLastErrorMessage() << L"\n";
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
         lastExitCode_ = 1;
         return;
     }
 
     if (!TerminateProcess(process, 1)) {
+        DWORD errorCode = GetLastError();
         std::wcerr << L"taskkill: cannot terminate process " << pid << L": "
-                   << winutil::getLastErrorMessage() << L"\n";
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
         CloseHandle(process);
         lastExitCode_ = 1;
         return;
