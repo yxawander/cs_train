@@ -6,8 +6,6 @@
 #include <windows.h>
 
 #include <algorithm>
-#include <atomic>
-#include <csignal>
 #include <cwchar>
 #include <cstdlib>
 #include <iomanip>
@@ -18,8 +16,6 @@
 #include <vector>
 
 namespace {
-
-std::atomic_bool g_ctrlInterrupted{false};
 
 // 将 WIN32_FIND_DATAW 中高低两段文件大小合成为 64 位大小。
 std::uint64_t fileSizeOf(const WIN32_FIND_DATAW& data) {
@@ -199,38 +195,15 @@ bool readFileBytes(const std::wstring& path, std::vector<char>& bytes, std::wstr
     return true;
 }
 
-// 捕获 Ctrl+C/Ctrl+Break，让 Shell 重新显示提示符而不是直接退出。
-BOOL WINAPI consoleCtrlHandler(DWORD ctrlType) {
-    if (ctrlType == CTRL_C_EVENT || ctrlType == CTRL_BREAK_EVENT) {
-        g_ctrlInterrupted.store(true);
-        return TRUE;
-    }
-    return FALSE;
-}
-
-// 兜底处理 C 运行库收到的 Ctrl+C 信号，避免按默认行为直接结束进程。
-void signalInterruptHandler(int) {
-    g_ctrlInterrupted.store(true);
-    std::signal(SIGINT, signalInterruptHandler);
-}
-
 } // namespace
 
 // Shell 主循环：显示提示符、读取输入、执行命令。
 int Shell::run() {
-    SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
-    std::signal(SIGINT, signalInterruptHandler);
-
     while (running_) {
         printPrompt();
 
         std::wstring line;
         if (!std::getline(std::wcin, line)) {
-            if (g_ctrlInterrupted.exchange(false)) {
-                std::wcin.clear();
-                std::wcout << L"\n";
-                continue;
-            }
             std::wcout << L"\n";
             break;
         }
@@ -238,7 +211,6 @@ int Shell::run() {
         processLine(line);
     }
 
-    SetConsoleCtrlHandler(consoleCtrlHandler, FALSE);
     return lastExitCode_;
 }
 
