@@ -20,19 +20,23 @@ namespace {
 
 std::atomic_bool g_ctrlInterrupted{false};
 
+// 将 WIN32_FIND_DATAW 中高低两段文件大小合成为 64 位大小。
 std::uint64_t fileSizeOf(const WIN32_FIND_DATAW& data) {
     return (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) |
            static_cast<std::uint64_t>(data.nFileSizeLow);
 }
 
+// 忽略大小写比较两个宽字符串。
 bool equalsIgnoreCase(const std::wstring& left, const std::wstring& right) {
     return CommandParser::toLower(left) == CommandParser::toLower(right);
 }
 
+// 忽略大小写判断文本中是否包含关键字，用于 tasklist 过滤。
 bool containsIgnoreCase(const std::wstring& text, const std::wstring& keyword) {
     return CommandParser::toLower(text).find(CommandParser::toLower(keyword)) != std::wstring::npos;
 }
 
+// 解析无符号整数，供 history n 这类参数使用。
 bool parseUnsigned(const std::wstring& text, std::size_t& value) {
     if (text.empty()) {
         return false;
@@ -54,6 +58,7 @@ bool parseUnsigned(const std::wstring& text, std::size_t& value) {
     return true;
 }
 
+// 读取环境变量值，并通过 found 区分“空值”和“不存在”。
 std::wstring getEnvironmentVariableValue(const std::wstring& name, bool& found) {
     found = false;
     DWORD required = GetEnvironmentVariableW(name.c_str(), nullptr, 0);
@@ -72,6 +77,7 @@ std::wstring getEnvironmentVariableValue(const std::wstring& name, bool& found) 
     return buffer;
 }
 
+// 展开 echo 文本中的 %ERRORLEVEL%、%CD% 和普通环境变量。
 std::wstring expandEnvironmentReferences(const std::wstring& text, int lastExitCode) {
     std::wstring result;
     for (std::size_t i = 0; i < text.size();) {
@@ -111,6 +117,7 @@ std::wstring expandEnvironmentReferences(const std::wstring& text, int lastExitC
     return result;
 }
 
+// 将读取到的文件字节转换为宽字符文本，兼容 UTF-16LE、UTF-8 BOM 和系统 ANSI。
 std::wstring bytesToText(const std::vector<char>& bytes) {
     if (bytes.empty()) {
         return L"";
@@ -165,6 +172,7 @@ std::wstring bytesToText(const std::vector<char>& bytes) {
     return text;
 }
 
+// 使用 CreateFileW/ReadFile 读取文件字节，并限制超大文件输出。
 bool readFileBytes(const std::wstring& path, std::vector<char>& bytes, std::wstring& error) {
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -208,6 +216,7 @@ bool readFileBytes(const std::wstring& path, std::vector<char>& bytes, std::wstr
     return true;
 }
 
+// 捕获 Ctrl+C/Ctrl+Break，让 Shell 重新显示提示符而不是直接退出。
 BOOL WINAPI consoleCtrlHandler(DWORD ctrlType) {
     if (ctrlType == CTRL_C_EVENT || ctrlType == CTRL_BREAK_EVENT) {
         g_ctrlInterrupted.store(true);
@@ -218,6 +227,7 @@ BOOL WINAPI consoleCtrlHandler(DWORD ctrlType) {
 
 } // namespace
 
+// Shell 主循环：显示提示符、读取输入、执行命令。
 int Shell::run() {
     SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
 
@@ -242,10 +252,12 @@ int Shell::run() {
     return lastExitCode_;
 }
 
+// 对外的一行命令处理入口，默认记录历史。
 bool Shell::processLine(const std::wstring& line) {
     return processLineInternal(line, true);
 }
 
+// 处理一行命令，可控制是否写入历史，供 !! 重放复用。
 bool Shell::processLineInternal(const std::wstring& line, bool recordHistory) {
     ParsedCommand command = CommandParser::parse(line);
     if (command.empty) {
@@ -277,11 +289,13 @@ bool Shell::processLineInternal(const std::wstring& line, bool recordHistory) {
     return running_;
 }
 
+// 输出当前目录提示符。
 void Shell::printPrompt() const {
     std::wcout << winutil::getCurrentDirectory() << L"> ";
     std::wcout.flush();
 }
 
+// 根据命令名调用对应内部命令；非内部命令返回 false。
 bool Shell::dispatchBuiltin(const ParsedCommand& command) {
     if (command.name == L"help" || command.name == L"?") {
         cmdHelp(command);
@@ -331,6 +345,7 @@ bool Shell::dispatchBuiltin(const ParsedCommand& command) {
     return true;
 }
 
+// 显示总体帮助或单个命令的简要帮助。
 void Shell::cmdHelp(const ParsedCommand& command) {
     if (!command.args.empty()) {
         std::wstring name = CommandParser::toLower(command.args[0]);
@@ -378,6 +393,7 @@ void Shell::cmdHelp(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// cd/chdir：显示或切换当前工作目录。
 void Shell::cmdCd(const ParsedCommand& command) {
     if (command.args.empty()) {
         std::wcout << winutil::getCurrentDirectory() << L"\n";
@@ -414,6 +430,7 @@ void Shell::cmdCd(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// dir：枚举目录内容并显示卷信息、文件统计和剩余空间。
 void Shell::cmdDir(const ParsedCommand& command) {
     if (!command.args.empty() && command.args[0] == L"/?") {
         std::wcout << L"Usage: dir [path|wildcard]\n";
@@ -507,6 +524,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// history：显示历史、最近 n 条历史，或清空历史。
 void Shell::cmdHistory(const ParsedCommand& command) {
     if (!command.args.empty() && equalsIgnoreCase(command.args[0], L"clear")) {
         history_.clear();
@@ -534,6 +552,7 @@ void Shell::cmdHistory(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// tasklist：使用进程快照显示进程，可按进程名关键字过滤。
 void Shell::cmdTasklist(const ParsedCommand& command) {
     std::wstring keyword;
     if (!command.args.empty()) {
@@ -600,6 +619,7 @@ void Shell::cmdTasklist(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// taskkill：按 PID 或进程名打开并终止目标进程。
 void Shell::cmdTaskkill(const ParsedCommand& command) {
     if (command.args.empty() || command.args[0] == L"/?") {
         std::wcout << L"Usage: taskkill <pid>\n"
@@ -732,6 +752,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
     lastExitCode_ = terminatePid(pid) ? 0 : 1;
 }
 
+// echo：输出文本，并展开常见环境变量引用。
 void Shell::cmdEcho(const ParsedCommand& command) {
     if (command.args.empty()) {
         std::wcout << L"\n";
@@ -745,11 +766,13 @@ void Shell::cmdEcho(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// pwd：显示当前工作目录。
 void Shell::cmdPwd() {
     std::wcout << winutil::getCurrentDirectory() << L"\n";
     lastExitCode_ = 0;
 }
 
+// mkdir/md：创建目录。
 void Shell::cmdMkdir(const ParsedCommand& command) {
     if (command.args.empty() || command.args[0] == L"/?") {
         std::wcout << L"Usage: mkdir <directory>\n";
@@ -767,6 +790,7 @@ void Shell::cmdMkdir(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// rmdir/rd：删除空目录。
 void Shell::cmdRmdir(const ParsedCommand& command) {
     if (command.args.empty() || command.args[0] == L"/?") {
         std::wcout << L"Usage: rmdir <directory>\n";
@@ -784,6 +808,7 @@ void Shell::cmdRmdir(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// del/erase：删除文件，支持通配符删除普通文件。
 void Shell::cmdDel(const ParsedCommand& command) {
     if (command.args.empty() || command.args[0] == L"/?") {
         std::wcout << L"Usage: del <file|wildcard>\n";
@@ -846,6 +871,7 @@ void Shell::cmdDel(const ParsedCommand& command) {
     lastExitCode_ = allOk ? 0 : 1;
 }
 
+// copy：复制一个文件到目标路径。
 void Shell::cmdCopy(const ParsedCommand& command) {
     if (command.args.size() < 2 || command.args[0] == L"/?") {
         std::wcout << L"Usage: copy <source-file> <destination-file>\n";
@@ -864,6 +890,7 @@ void Shell::cmdCopy(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// move/ren/rename：移动或重命名文件、目录。
 void Shell::cmdMove(const ParsedCommand& command) {
     if (command.args.size() < 2 || command.args[0] == L"/?") {
         std::wcout << L"Usage: move <source> <destination>\n";
@@ -883,6 +910,7 @@ void Shell::cmdMove(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// type：读取并输出文本文件内容。
 void Shell::cmdType(const ParsedCommand& command) {
     if (command.args.empty() || command.args[0] == L"/?") {
         std::wcout << L"Usage: type <text-file>\n";
@@ -905,6 +933,7 @@ void Shell::cmdType(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// set：枚举、查询、设置或删除当前进程环境变量。
 void Shell::cmdSet(const ParsedCommand& command) {
     if (command.args.empty()) {
         LPWCH block = GetEnvironmentStringsW();
@@ -960,6 +989,7 @@ void Shell::cmdSet(const ParsedCommand& command) {
     lastExitCode_ = 0;
 }
 
+// date：显示当前本地日期。
 void Shell::cmdDate() {
     SYSTEMTIME now = {};
     GetLocalTime(&now);
@@ -970,6 +1000,7 @@ void Shell::cmdDate() {
     lastExitCode_ = 0;
 }
 
+// time：显示当前本地时间。
 void Shell::cmdTime() {
     SYSTEMTIME now = {};
     GetLocalTime(&now);
@@ -980,6 +1011,7 @@ void Shell::cmdTime() {
     lastExitCode_ = 0;
 }
 
+// ver：显示解释器版本以及当前用户名、计算机名。
 void Shell::cmdVer() {
     std::wcout << L"WinCommandShell version 2.0\n"
                << L"User: " << winutil::getUserNameSafe()
@@ -987,6 +1019,7 @@ void Shell::cmdVer() {
     lastExitCode_ = 0;
 }
 
+// exit：退出 Shell，可指定进程退出码。
 void Shell::cmdExit(const ParsedCommand& command) {
     if (!command.args.empty()) {
         DWORD code = 0;
@@ -1000,6 +1033,7 @@ void Shell::cmdExit(const ParsedCommand& command) {
     running_ = false;
 }
 
+// 执行外部命令：先直接 CreateProcessW，失败后用 cmd.exe /C 兼容执行。
 void Shell::executeExternal(const ParsedCommand& command) {
     std::vector<wchar_t> commandLine(command.original.begin(), command.original.end());
     commandLine.push_back(L'\0');

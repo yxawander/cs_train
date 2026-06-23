@@ -25,7 +25,7 @@ int main() {
         std::wcout.imbue(std::locale());
         std::wcerr.imbue(std::locale());
     } catch (const std::runtime_error&) {
-        // Keep the classic locale if the host has no configured native locale.
+        // 如果系统没有可用的本地 locale，就保留默认 locale。
     }
 
     Shell shell;

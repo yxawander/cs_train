@@ -6,6 +6,7 @@
 
 namespace winutil {
 
+// 将保存下来的 GetLastError 错误码转换为可读文本。
 std::wstring getLastErrorMessage(DWORD errorCode) {
     if (errorCode == 0) {
         return L"no error";
@@ -37,6 +38,7 @@ std::wstring getLastErrorMessage(DWORD errorCode) {
     return message;
 }
 
+// 使用动态缓冲区获取当前目录，避免固定长度路径限制。
 std::wstring getCurrentDirectory() {
     DWORD required = GetCurrentDirectoryW(0, nullptr);
     if (required == 0) {
@@ -52,6 +54,7 @@ std::wstring getCurrentDirectory() {
     return buffer;
 }
 
+// 读取 Windows 计算机名，失败时返回默认值。
 std::wstring getComputerNameSafe() {
     wchar_t buffer[MAX_COMPUTERNAME_LENGTH + 1] = {};
     DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
@@ -61,6 +64,7 @@ std::wstring getComputerNameSafe() {
     return L"UNKNOWN-PC";
 }
 
+// 读取 Windows 用户名，失败时返回默认值。
 std::wstring getUserNameSafe() {
     wchar_t buffer[256] = {};
     DWORD size = static_cast<DWORD>(sizeof(buffer) / sizeof(buffer[0]));
@@ -70,19 +74,23 @@ std::wstring getUserNameSafe() {
     return L"USER";
 }
 
+// 判断路径中是否包含 *.cpp 或 test?.txt 这类通配符。
 bool hasWildcard(const std::wstring& path) {
     return path.find_first_of(L"*?") != std::wstring::npos;
 }
 
+// 根据 Win32 文件属性判断路径是否存在。
 bool pathExists(const std::wstring& path) {
     return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+// 判断路径是否存在且是否为目录。
 bool isDirectory(const std::wstring& path) {
     DWORD attributes = GetFileAttributesW(path.c_str());
     return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+// 尽量将相对路径转换为完整路径。
 std::wstring getFullPath(const std::wstring& path) {
     DWORD required = GetFullPathNameW(path.c_str(), 0, nullptr, nullptr);
     if (required == 0) {
@@ -98,6 +106,7 @@ std::wstring getFullPath(const std::wstring& path) {
     return buffer;
 }
 
+// 从普通路径或通配符表达式中提取目录部分。
 std::wstring directoryPart(const std::wstring& path) {
     if (path.empty()) {
         return L".";
@@ -119,6 +128,7 @@ std::wstring directoryPart(const std::wstring& path) {
     return path.substr(0, pos);
 }
 
+// 确保目录路径末尾有斜杠，便于继续拼接文件名或 *。
 std::wstring ensureTrailingBackslash(std::wstring path) {
     if (path.empty()) {
         return L".\\";
@@ -130,6 +140,7 @@ std::wstring ensureTrailingBackslash(std::wstring path) {
     return path;
 }
 
+// 构造传给 FindFirstFileW 的搜索模式，供 dir/del 使用。
 std::wstring makeDirSearchPattern(const std::wstring& target) {
     std::wstring effective = target.empty() ? L"." : target;
     if (!hasWildcard(effective) && isDirectory(effective)) {
@@ -138,6 +149,7 @@ std::wstring makeDirSearchPattern(const std::wstring& target) {
     return effective;
 }
 
+// 获取 dir 输出中 “Directory of ...” 应显示的目录。
 std::wstring getListingDirectory(const std::wstring& target) {
     std::wstring effective = target.empty() ? L"." : target;
     if (!hasWildcard(effective) && isDirectory(effective)) {
@@ -146,6 +158,7 @@ std::wstring getListingDirectory(const std::wstring& target) {
     return getFullPath(directoryPart(effective));
 }
 
+// 获取路径所在卷的根目录，例如 C:\，用于查询磁盘信息。
 std::wstring getVolumeRoot(const std::wstring& path) {
     std::wstring full = getFullPath(path.empty() ? L"." : path);
     std::vector<wchar_t> buffer(MAX_PATH + 16, L'\0');
@@ -159,6 +172,7 @@ std::wstring getVolumeRoot(const std::wstring& path) {
     return L"";
 }
 
+// 将 FILETIME 转换成本地时间字符串，格式为 yyyy/MM/dd HH:mm。
 std::wstring formatFileTime(const FILETIME& fileTime) {
     FILETIME localFileTime = {};
     SYSTEMTIME systemTime = {};
@@ -177,6 +191,7 @@ std::wstring formatFileTime(const FILETIME& fileTime) {
     return oss.str();
 }
 
+// 给字节数和普通整数添加千位分隔符。
 std::wstring formatUnsigned(std::uint64_t value) {
     std::wstring digits = std::to_wstring(value);
     for (std::ptrdiff_t i = static_cast<std::ptrdiff_t>(digits.size()) - 3; i > 0; i -= 3) {
@@ -185,10 +200,12 @@ std::wstring formatUnsigned(std::uint64_t value) {
     return digits;
 }
 
+// 格式化文件大小，目前复用普通整数格式。
 std::wstring formatFileSize(std::uint64_t value) {
     return formatUnsigned(value);
 }
 
+// 将 DWORD 卷序列号格式化为 XXXX-XXXX。
 std::wstring formatVolumeSerial(DWORD serial) {
     std::wostringstream oss;
     oss << std::uppercase << std::hex << std::setfill(L'0')
@@ -198,6 +215,7 @@ std::wstring formatVolumeSerial(DWORD serial) {
     return oss.str();
 }
 
+// 解析十进制 PID，并拒绝非数字和溢出输入。
 bool tryParsePid(const std::wstring& text, DWORD& pid) {
     if (text.empty()) {
         return false;

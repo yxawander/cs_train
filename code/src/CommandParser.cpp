@@ -4,6 +4,7 @@
 #include <locale>
 #include <sstream>
 
+// 去除用户输入首尾的空白字符。
 std::wstring CommandParser::trim(const std::wstring& value) {
     std::size_t first = 0;
     while (first < value.size() && std::iswspace(value[first])) {
@@ -18,6 +19,7 @@ std::wstring CommandParser::trim(const std::wstring& value) {
     return value.substr(first, last - first);
 }
 
+// 统一命令名大小写，便于内部命令忽略大小写匹配。
 std::wstring CommandParser::toLower(std::wstring value) {
     for (wchar_t& ch : value) {
         ch = static_cast<wchar_t>(std::towlower(ch));
@@ -25,6 +27,7 @@ std::wstring CommandParser::toLower(std::wstring value) {
     return value;
 }
 
+// 将多个参数重新拼成文本，供 echo/set 使用。
 std::wstring CommandParser::join(const std::vector<std::wstring>& values, std::size_t begin) {
     std::wostringstream oss;
     for (std::size_t i = begin; i < values.size(); ++i) {
@@ -36,6 +39,7 @@ std::wstring CommandParser::join(const std::vector<std::wstring>& values, std::s
     return oss.str();
 }
 
+// 将原始输入行转换为命令名、参数列表和原始命令文本。
 ParsedCommand CommandParser::parse(const std::wstring& line) {
     ParsedCommand result;
     result.original = trim(line);
@@ -54,6 +58,7 @@ ParsedCommand CommandParser::parse(const std::wstring& line) {
     return result;
 }
 
+// 按空白切分命令，同时保留 "C:\Program Files" 这类引号路径。
 std::vector<std::wstring> CommandParser::tokenize(const std::wstring& line) {
     std::vector<std::wstring> tokens;
     std::wstring current;
@@ -89,4 +94,3 @@ std::vector<std::wstring> CommandParser::tokenize(const std::wstring& line) {
 
     return tokens;
 }
-

@@ -7,7 +7,9 @@
 
 class Shell {
 public:
+    // 启动交互式命令循环。
     int run();
+    // 处理一行命令，可用于用户输入和历史命令重放。
     bool processLine(const std::wstring& line);
 
 private:
@@ -15,10 +17,14 @@ private:
     int lastExitCode_ = 0;
     std::vector<std::wstring> history_;
 
+    // 打印“当前目录>”格式的提示符。
     void printPrompt() const;
+    // 将解析后的命令分发给对应的内部命令处理函数。
     bool dispatchBuiltin(const ParsedCommand& command);
+    // 普通输入和内部重放共用的处理逻辑。
     bool processLineInternal(const std::wstring& line, bool recordHistory);
 
+    // 内部命令处理函数。
     void cmdHelp(const ParsedCommand& command);
     void cmdCd(const ParsedCommand& command);
     void cmdDir(const ParsedCommand& command);
@@ -38,5 +44,6 @@ private:
     void cmdTime();
     void cmdVer();
     void cmdExit(const ParsedCommand& command);
+    // 通过 CreateProcessW 执行外部命令，失败后尝试 cmd.exe /C 兼容执行。
     void executeExternal(const ParsedCommand& command);
 };
