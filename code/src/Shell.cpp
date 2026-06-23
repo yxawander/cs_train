@@ -214,35 +214,14 @@ int Shell::run() {
     return lastExitCode_;
 }
 
-// 对外的一行命令处理入口，默认记录历史。
+// 处理一行用户输入，解析后记录历史并执行。
 bool Shell::processLine(const std::wstring& line) {
-    return processLineInternal(line, true);
-}
-
-// 处理一行命令，可控制是否写入历史，供 !! 重放复用。
-bool Shell::processLineInternal(const std::wstring& line, bool recordHistory) {
     ParsedCommand command = CommandParser::parse(line);
     if (command.empty) {
         return running_;
     }
 
-    if (command.name == L"!!") {
-        if (history_.empty()) {
-            std::wcerr << L"history: no previous command\n";
-            lastExitCode_ = 1;
-            return running_;
-        }
-        std::wstring previous = history_.back();
-        if (recordHistory) {
-            history_.push_back(command.original);
-        }
-        std::wcout << previous << L"\n";
-        return processLineInternal(previous, true);
-    }
-
-    if (recordHistory) {
-        history_.push_back(command.original);
-    }
+    history_.push_back(command.original);
 
     if (!dispatchBuiltin(command)) {
         executeExternal(command);
@@ -342,7 +321,6 @@ void Shell::cmdHelp(const ParsedCommand& command) {
         << L"  move <src> <dst>          Move or rename a file or directory\n"
         << L"  type <file>               Display a text file\n"
         << L"  history [n|clear]         Show, limit, or clear command history\n"
-        << L"  !!                        Execute the previous command\n"
         << L"  tasklist [keyword]        Show running processes\n"
         << L"  taskkill <pid>            Terminate a process by PID\n"
         << L"  taskkill /IM <name>       Terminate processes by image name\n"

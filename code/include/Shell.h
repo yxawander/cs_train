@@ -9,7 +9,7 @@ class Shell {
 public:
     // 启动交互式命令循环。
     int run();
-    // 处理一行命令，可用于用户输入和历史命令重放。
+    // 处理一行用户输入的命令。
     bool processLine(const std::wstring& line);
 
 private:
@@ -21,8 +21,6 @@ private:
     void printPrompt() const;
     // 将解析后的命令分发给对应的内部命令处理函数。
     bool dispatchBuiltin(const ParsedCommand& command);
-    // 普通输入和内部重放共用的处理逻辑。
-    bool processLineInternal(const std::wstring& line, bool recordHistory);
 
     // 内部命令处理函数。
     void cmdHelp(const ParsedCommand& command);

@@ -41,7 +41,6 @@ g++ -std=c++17 -Wall -Wextra -Iinclude src\main.cpp src\CommandParser.cpp src\Sh
 | `move <src> <dst>` | 移动或重命名文件、目录 |
 | `type <file>` | 显示文本文件内容 |
 | `history [n\|clear]` | 显示历史命令、最近 n 条命令或清空历史 |
-| `!!` | 执行上一条命令 |
 | `exit [code]` | 退出解释器 |
 | `tasklist [keyword]` | 显示系统当前进程信息，可按进程名过滤 |
 | `taskkill <pid>` | 按 PID 结束进程 |
@@ -70,7 +69,6 @@ rmdir test
 set DEMO=hello
 echo %DEMO%
 history 5
-!!
 
 tasklist chrome
 taskkill /IM notepad.exe /F
