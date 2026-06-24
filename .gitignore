@@ -48,4 +48,6 @@ temp/
 *~
 
 # Course materials and local report drafts
-报告/
+*.doc
+*.docx
+*.pdf
