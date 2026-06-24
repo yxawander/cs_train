@@ -318,7 +318,7 @@ void Shell::cmdHelp(const ParsedCommand& command) {
         << L"  rmdir|rd <dir>            Remove an empty directory\n"
         << L"  del|erase <file>          Delete file(s), wildcard supported\n"
         << L"  copy <src> <dst>          Copy a file\n"
-        << L"  move <src> <dst>          Move or rename a file or directory\n"
+        << L"  move|ren|rename <src> <dst> Move or rename a file or directory\n"
         << L"  type <file>               Display a text file\n"
         << L"  history [n|clear]         Show, limit, or clear command history\n"
         << L"  tasklist [keyword]        Show running processes\n"
@@ -833,7 +833,7 @@ void Shell::cmdCopy(const ParsedCommand& command) {
 // move/ren/rename：移动或重命名文件、目录。
 void Shell::cmdMove(const ParsedCommand& command) {
     if (command.args.size() < 2 || command.args[0] == L"/?") {
-        std::wcout << L"Usage: move <source> <destination>\n";
+        std::wcout << L"Usage: move|ren|rename <source> <destination>\n";
         lastExitCode_ = command.args.size() < 2 ? 1 : 0;
         return;
     }

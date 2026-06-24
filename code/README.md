@@ -38,7 +38,7 @@ g++ -std=c++17 -Wall -Wextra -Iinclude src\main.cpp src\CommandParser.cpp src\Sh
 | `rmdir <dir>` / `rd <dir>` | 删除空目录 |
 | `del <file\|wildcard>` / `erase <file\|wildcard>` | 删除文件，支持通配符 |
 | `copy <src> <dst>` | 复制文件 |
-| `move <src> <dst>` | 移动或重命名文件、目录 |
+| `move <src> <dst>` / `ren <src> <dst>` / `rename <src> <dst>` | 移动或重命名文件、目录 |
 | `type <file>` | 显示文本文件内容 |
 | `history [n\|clear]` | 显示历史命令、最近 n 条命令或清空历史 |
 | `exit [code]` | 退出解释器 |
