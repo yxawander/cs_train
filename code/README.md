@@ -51,7 +51,7 @@ g++ -std=c++17 -Wall -Wextra -Iinclude src\main.cpp src\CommandParser.cpp src\Sh
 | `pwd` | 显示当前目录 |
 | `date` / `time` | 显示当前日期或时间 |
 | `ver` | 显示程序版本、用户名和计算机名 |
-| `cls` / `clear` | 清屏 |
+| `cls` / `clear` | 使用控制台 API 清屏 |
 | `help [command]` / `? [command]` | 显示总体帮助或指定命令帮助 |
 
 不是内部命令的输入会通过 `CreateProcessW` 创建外部进程执行；如果直接创建失败，程序会再尝试通过系统 `ComSpec` 即 `cmd.exe /C` 执行，以兼容部分批处理和系统命令。

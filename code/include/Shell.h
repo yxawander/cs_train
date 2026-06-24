@@ -41,6 +41,7 @@ private:
     void cmdDate();
     void cmdTime();
     void cmdVer();
+    void cmdClear();
     void cmdExit(const ParsedCommand& command);
     // 通过 CreateProcessW 执行外部命令，失败后尝试 cmd.exe /C 兼容执行。
     void executeExternal(const ParsedCommand& command);

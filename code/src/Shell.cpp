@@ -277,8 +277,7 @@ bool Shell::dispatchBuiltin(const ParsedCommand& command) {
     } else if (command.name == L"ver") {
         cmdVer();
     } else if (command.name == L"cls" || command.name == L"clear") {
-        system("cls");
-        lastExitCode_ = 0;
+        cmdClear();
     } else {
         return false;
     }
@@ -957,6 +956,40 @@ void Shell::cmdVer() {
     std::wcout << L"WinCommandShell version 2.0\n"
                << L"User: " << winutil::getUserNameSafe()
                << L"  Computer: " << winutil::getComputerNameSafe() << L"\n";
+    lastExitCode_ = 0;
+}
+
+// cls/clear：使用控制台缓冲区 API 清屏并把光标移回左上角。
+void Shell::cmdClear() {
+    HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (output == INVALID_HANDLE_VALUE || output == nullptr) {
+        std::wcerr << L"cls: cannot get console output handle\n";
+        lastExitCode_ = 1;
+        return;
+    }
+
+    CONSOLE_SCREEN_BUFFER_INFO info = {};
+    if (!GetConsoleScreenBufferInfo(output, &info)) {
+        DWORD errorCode = GetLastError();
+        std::wcerr << L"cls: cannot read console buffer: "
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
+        lastExitCode_ = 1;
+        return;
+    }
+
+    COORD origin = {0, 0};
+    DWORD cellCount = static_cast<DWORD>(info.dwSize.X) * static_cast<DWORD>(info.dwSize.Y);
+    DWORD written = 0;
+    if (!FillConsoleOutputCharacterW(output, L' ', cellCount, origin, &written) ||
+        !FillConsoleOutputAttribute(output, info.wAttributes, cellCount, origin, &written) ||
+        !SetConsoleCursorPosition(output, origin)) {
+        DWORD errorCode = GetLastError();
+        std::wcerr << L"cls: cannot clear console: "
+                   << winutil::getLastErrorMessage(errorCode) << L"\n";
+        lastExitCode_ = 1;
+        return;
+    }
+
     lastExitCode_ = 0;
 }
 
