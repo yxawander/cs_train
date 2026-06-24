@@ -1,14 +1,14 @@
 # Windows 命令行解释器
 
-这是一个使用 C++17 和 Win32 API 实现的 Windows 命令行解释器，满足任务书中对 `cd`、`dir`、`history`、`exit`、`tasklist`、`taskkill` 等内部命令的要求，并额外扩展了文件管理、环境变量、历史命令增强和进程过滤等功能。程序采用控制台交互方式运行，提示符显示当前工作目录和 `>`。
+这是一个使用 C++17 和 Win32 API 实现的 Windows 命令行解释器，满足任务书中对 `cd`、`dir`、`history`、`exit`、`tasklist`、`taskkill` 等内部命令的要求，并额外扩展了文件管理、环境变量、历史命令查看和进程过滤等功能。程序采用控制台交互方式运行，提示符显示当前工作目录和 `>`。
 
 ## 目录结构
 
 ```text
 code/
-├─ CMakeLists.txt
 ├─ README.md
-├─ Windows命令行解释器设计文档.md
+├─ 设计文档.md
+├─ winshell.exe
 ├─ include/
 │  ├─ CommandParser.h
 │  ├─ Shell.h
@@ -32,7 +32,7 @@ g++ -std=c++17 -Wall -Wextra -Iinclude src\main.cpp src\CommandParser.cpp src\Sh
 
 | 命令 | 功能 |
 | --- | --- |
-| `cd [path]` | 切换或显示当前目录 |
+| `cd [path]` / `chdir [path]` | 切换或显示当前目录 |
 | `dir [path\|wildcard]` | 显示目录内容、文件大小、目录数、磁盘剩余空间 |
 | `mkdir <dir>` / `md <dir>` | 创建目录 |
 | `rmdir <dir>` / `rd <dir>` | 删除空目录 |
@@ -52,7 +52,7 @@ g++ -std=c++17 -Wall -Wextra -Iinclude src\main.cpp src\CommandParser.cpp src\Sh
 | `date` / `time` | 显示当前日期或时间 |
 | `ver` | 显示程序版本、用户名和计算机名 |
 | `cls` / `clear` | 清屏 |
-| `help [command]` | 显示总体帮助或指定命令帮助 |
+| `help [command]` / `? [command]` | 显示总体帮助或指定命令帮助 |
 
 不是内部命令的输入会通过 `CreateProcessW` 创建外部进程执行；如果直接创建失败，程序会再尝试通过系统 `ComSpec` 即 `cmd.exe /C` 执行，以兼容部分批处理和系统命令。
 

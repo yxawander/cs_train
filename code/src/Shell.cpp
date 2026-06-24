@@ -290,8 +290,8 @@ bool Shell::dispatchBuiltin(const ParsedCommand& command) {
 void Shell::cmdHelp(const ParsedCommand& command) {
     if (!command.args.empty()) {
         std::wstring name = CommandParser::toLower(command.args[0]);
-        if (name == L"cd") {
-            std::wcout << L"cd [path]\nChange or show the current directory.\n";
+        if (name == L"cd" || name == L"chdir") {
+            std::wcout << L"cd|chdir [path]\nChange or show the current directory.\n";
         } else if (name == L"dir") {
             std::wcout << L"dir [path|wildcard]\nList files, directories, and disk space.\n";
         } else if (name == L"history") {
@@ -312,7 +312,7 @@ void Shell::cmdHelp(const ParsedCommand& command) {
     std::wcout
         << L"Windows command shell\n"
         << L"Built-in commands:\n"
-        << L"  cd [path]                 Change or show current directory\n"
+        << L"  cd|chdir [path]           Change or show current directory\n"
         << L"  dir [path|wildcard]       List files, directories, and disk space\n"
         << L"  mkdir|md <dir>            Create a directory\n"
         << L"  rmdir|rd <dir>            Remove an empty directory\n"
@@ -329,7 +329,8 @@ void Shell::cmdHelp(const ParsedCommand& command) {
         << L"  date | time | ver         Show date, time, or shell version\n"
         << L"  pwd                       Show current directory\n"
         << L"  cls | clear               Clear the screen\n"
-        << L"  exit [code]               Exit this shell\n";
+        << L"  exit [code]               Exit this shell\n"
+        << L"  help|? [command]          Show help\n";
     lastExitCode_ = 0;
 }
 
@@ -342,7 +343,7 @@ void Shell::cmdCd(const ParsedCommand& command) {
     }
 
     if (command.args[0] == L"/?") {
-        std::wcout << L"Usage: cd [path]\n";
+        std::wcout << L"Usage: cd|chdir [path]\n";
         lastExitCode_ = 0;
         return;
     }
