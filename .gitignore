@@ -41,6 +41,7 @@ Desktop.ini
 # Temporary files
 tmp/
 temp/
+useless/
 *.tmp
 *.log
 *.bak
