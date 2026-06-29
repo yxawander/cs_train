@@ -974,6 +974,9 @@ void Shell::cmdSet(const ParsedCommand& command) {
     }
 
     std::wstring assignment = CommandParser::join(command.args);
+    // set NAME：查询变量。
+    // set NAME=VALUE：设置变量。
+    // set NAME=：删除变量。
     std::size_t equals = assignment.find(L'=');
     if (equals == std::wstring::npos) {
         // 没有等号表示查询单个变量；有等号才表示设置或删除变量。
