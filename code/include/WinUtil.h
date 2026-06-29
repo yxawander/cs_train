@@ -11,6 +11,8 @@
 
 namespace winutil {
 
+// 本命名空间只放与 Win32 调用相关的辅助函数，避免 Shell.cpp 混入太多格式化和路径细节。
+
 // 将 Win32 错误码转换为可读的系统错误信息。
 std::wstring getLastErrorMessage(DWORD errorCode = GetLastError());
 // 获取当前进程的工作目录。

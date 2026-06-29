@@ -52,6 +52,7 @@ ParsedCommand CommandParser::parse(const std::wstring& line) {
         return result;
     }
 
+    // 第一个 token 永远视为命令名，其余 token 作为参数交给具体命令处理。
     result.empty = false;
     result.name = toLower(tokens.front());
     result.args.assign(tokens.begin() + 1, tokens.end());
@@ -68,16 +69,19 @@ std::vector<std::wstring> CommandParser::tokenize(const std::wstring& line) {
         wchar_t ch = line[i];
 
         if (ch == L'"') {
+            // 在引号内部遇到两个连续双引号时，解释为参数中的一个真实双引号。
             if (inQuotes && i + 1 < line.size() && line[i + 1] == L'"') {
                 current.push_back(L'"');
                 ++i;
             } else {
+                // 普通双引号只用于切换“是否处于引号内”的状态，不写入参数。
                 inQuotes = !inQuotes;
             }
             continue;
         }
 
         if (!inQuotes && std::iswspace(ch)) {
+            // 引号外的空白是参数分隔符；连续空白不会产生空参数。
             if (!current.empty()) {
                 tokens.push_back(current);
                 current.clear();

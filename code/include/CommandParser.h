@@ -4,9 +4,13 @@
 #include <vector>
 
 struct ParsedCommand {
+    // 用户输入去掉首尾空白后的完整命令，外部命令执行时要尽量保留原样。
     std::wstring original;
+    // 命令名，解析时统一转换为小写，便于忽略大小写匹配内部命令。
     std::wstring name;
+    // 命令参数列表；引号只参与解析，不会保留在参数内容中。
     std::vector<std::wstring> args;
+    // 是否是一条空命令
     bool empty = true;
 };
 

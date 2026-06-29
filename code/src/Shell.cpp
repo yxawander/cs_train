@@ -17,6 +17,8 @@
 
 namespace {
 
+// Shell.cpp 中这些匿名命名空间函数只服务本文件，避免暴露到头文件形成额外接口。
+
 // 将 WIN32_FIND_DATAW 中高低两段文件大小合成为 64 位大小。
 std::uint64_t fileSizeOf(const WIN32_FIND_DATAW& data) {
     return (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) |
@@ -223,6 +225,7 @@ bool Shell::processLine(const std::wstring& line) {
 
     history_.push_back(command.original);
 
+    // 内部命令会直接改变当前 Shell 状态；未识别的命令才交给外部进程处理。
     if (!dispatchBuiltin(command)) {
         executeExternal(command);
     }
@@ -379,6 +382,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
     }
 
     std::wstring target = command.args.empty() ? L"." : command.args[0];
+    // 目录路径会转换成“目录\*”，通配符路径保持用户输入原样。
     std::wstring pattern = winutil::makeDirSearchPattern(target);
     std::wstring listingDir = winutil::getListingDirectory(target);
     std::wstring volumeRoot = winutil::getVolumeRoot(listingDir);
@@ -419,6 +423,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
             continue;
         }
 
+        // 目录项和普通文件使用不同格式：目录显示 <DIR>，文件统计字节数。
         bool isDir = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         std::wcout << winutil::formatFileTime(data.ftLastWriteTime) << L"  ";
         if (isDir) {
@@ -436,6 +441,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
 
     DWORD lastFindError = GetLastError();
     FindClose(find);
+    // FindNextFileW 正常结束也会设置 ERROR_NO_MORE_FILES，其它错误才算遍历失败。
     if (lastFindError != ERROR_NO_MORE_FILES) {
         std::wcerr << L"dir: enumeration stopped: "
                    << winutil::getLastErrorMessage(lastFindError) << L"\n";
@@ -573,6 +579,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
     std::wstring imageName;
     for (std::size_t i = 0; i < command.args.size(); ++i) {
         if (equalsIgnoreCase(command.args[i], L"/f")) {
+            // /F 在真实 taskkill 中表示强制终止；本实现本来就使用 TerminateProcess。
             continue;
         }
         if (equalsIgnoreCase(command.args[i], L"/pid")) {
@@ -610,6 +617,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
             return false;
         }
 
+        // 只申请终止和等待所需权限，权限不足时 OpenProcess 会失败并返回明确错误。
         HANDLE process = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, targetPid);
         if (process == nullptr) {
             DWORD errorCode = GetLastError();
@@ -702,6 +710,7 @@ void Shell::cmdEcho(const ParsedCommand& command) {
 
     int previousExitCode = lastExitCode_;
     std::wstring text = CommandParser::join(command.args);
+    // 先保存上一条退出码，避免 echo 自己把 lastExitCode_ 清零后影响 %ERRORLEVEL%。
     std::wcout << expandEnvironmentReferences(text, previousExitCode) << L"\n";
     lastExitCode_ = 0;
 }
@@ -885,6 +894,7 @@ void Shell::cmdSet(const ParsedCommand& command) {
             return;
         }
 
+        // 环境块是以两个 L'\0' 结尾的字符串序列，每个变量项自身以 L'\0' 结束。
         for (LPWCH current = block; *current != L'\0'; current += wcslen(current) + 1) {
             if (*current != L'=') {
                 std::wcout << current << L"\n";
@@ -898,6 +908,7 @@ void Shell::cmdSet(const ParsedCommand& command) {
     std::wstring assignment = CommandParser::join(command.args);
     std::size_t equals = assignment.find(L'=');
     if (equals == std::wstring::npos) {
+        // 没有等号表示查询单个变量；有等号才表示设置或删除变量。
         bool found = false;
         std::wstring value = getEnvironmentVariableValue(assignment, found);
         if (!found) {
@@ -1035,6 +1046,7 @@ void Shell::executeExternal(const ParsedCommand& command) {
         std::wstring comspec = (comspecLength > 0 && comspecLength <= MAX_PATH)
                                    ? std::wstring(comspecBuffer, comspecLength)
                                    : L"C:\\Windows\\System32\\cmd.exe";
+        // 直接 CreateProcessW 不能执行部分 shell 内建/批处理语法，所以失败后交给 cmd.exe /C。
         std::wstring fallback = L"\"" + comspec + L"\" /C " + command.original;
         std::vector<wchar_t> fallbackLine(fallback.begin(), fallback.end());
         fallbackLine.push_back(L'\0');

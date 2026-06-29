@@ -13,8 +13,10 @@ public:
     bool processLine(const std::wstring& line);
 
 private:
+    // Shell 的运行状态和上一条命令退出码；echo %ERRORLEVEL% 会读取 lastExitCode_。
     bool running_ = true;
     int lastExitCode_ = 0;
+    // 当前会话内的历史命令，仅保存在内存中。
     std::vector<std::wstring> history_;
 
     // 打印“当前目录>”格式的提示符。

@@ -13,6 +13,7 @@ std::wstring getLastErrorMessage(DWORD errorCode) {
     }
 
     LPWSTR buffer = nullptr;
+    // FORMAT_MESSAGE_ALLOCATE_BUFFER 会让系统分配 buffer，使用完必须 LocalFree。
     DWORD size = FormatMessageW(
         FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
         nullptr,
@@ -162,6 +163,7 @@ std::wstring getListingDirectory(const std::wstring& target) {
 std::wstring getVolumeRoot(const std::wstring& path) {
     std::wstring full = getFullPath(path.empty() ? L"." : path);
     std::vector<wchar_t> buffer(MAX_PATH + 16, L'\0');
+    // 优先让系统根据路径判断卷根目录，兼容挂载点和普通盘符路径。
     if (GetVolumePathNameW(full.c_str(), buffer.data(), static_cast<DWORD>(buffer.size()))) {
         return std::wstring(buffer.data());
     }
@@ -226,6 +228,7 @@ bool tryParsePid(const std::wstring& text, DWORD& pid) {
         if (ch < L'0' || ch > L'9') {
             return false;
         }
+        // 边累加边检查 DWORD 范围，避免非法 PID 溢出后被截断成另一个值。
         value = value * 10 + static_cast<unsigned long long>(ch - L'0');
         if (value > 0xFFFFFFFFull) {
             return false;
