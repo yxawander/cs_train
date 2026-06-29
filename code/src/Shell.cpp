@@ -48,6 +48,7 @@ bool parseUnsigned(const std::wstring& text, std::size_t& value) {
             return false;
         }
         std::size_t digit = static_cast<std::size_t>(ch - L'0');
+        // 先判断再乘 10，避免用户输入超大数字时 size_t 发生无符号溢出。
         if (result > (std::numeric_limits<std::size_t>::max() - digit) / 10) {
             return false;
         }
@@ -85,12 +86,15 @@ std::wstring expandEnvironmentReferences(const std::wstring& text, int lastExitC
     std::wstring result;
     for (std::size_t i = 0; i < text.size();) {
         if (text[i] != L'%') {
+            // 普通字符不需要展开，直接复制到结果。
             result.push_back(text[i++]);
             continue;
         }
 
+        // 发现 '%' 后继续找下一个 '%'，中间内容才被当作变量名。
         std::size_t end = text.find(L'%', i + 1);
         if (end == std::wstring::npos) {
+            // 单独一个 '%' 不是合法变量引用，按原字符保留。
             result.push_back(text[i++]);
             continue;
         }
@@ -103,8 +107,10 @@ std::wstring expandEnvironmentReferences(const std::wstring& text, int lastExitC
         }
 
         if (equalsIgnoreCase(name, L"ERRORLEVEL")) {
+            // ERRORLEVEL 是 Shell 自己维护的上一条命令退出码，不来自系统环境变量。
             result += std::to_wstring(lastExitCode);
         } else if (equalsIgnoreCase(name, L"CD")) {
+            // CD 是当前工作目录，同样作为特殊变量处理。
             result += winutil::getCurrentDirectory();
         } else {
             bool found = false;
@@ -127,6 +133,7 @@ std::wstring bytesToText(const std::vector<char>& bytes) {
     }
 
     std::size_t offset = 0;
+    // UTF-8 BOM 是 EF BB BF，只用于标记编码，不应作为正文输出。
     if (bytes.size() >= 3 &&
         static_cast<unsigned char>(bytes[0]) == 0xEF &&
         static_cast<unsigned char>(bytes[1]) == 0xBB &&
@@ -135,6 +142,7 @@ std::wstring bytesToText(const std::vector<char>& bytes) {
     }
 
     int inputSize = static_cast<int>(bytes.size() - offset);
+    // 第一次调用 MultiByteToWideChar 只询问转换后需要多少个 wchar_t。
     int required = MultiByteToWideChar(
         CP_UTF8,
         MB_ERR_INVALID_CHARS,
@@ -147,6 +155,7 @@ std::wstring bytesToText(const std::vector<char>& bytes) {
     }
 
     std::wstring text(required, L'\0');
+    // 第二次调用才真正把 UTF-8 字节转换为 Windows 宽字符文本。
     MultiByteToWideChar(
         CP_UTF8,
         MB_ERR_INVALID_CHARS,
@@ -159,6 +168,7 @@ std::wstring bytesToText(const std::vector<char>& bytes) {
 
 // 使用 CreateFileW/ReadFile 读取文件字节，并限制超大文件输出。
 bool readFileBytes(const std::wstring& path, std::vector<char>& bytes, std::wstring& error) {
+    // CreateFileW 这里以只读方式打开已有文件；W 版本支持中文路径。
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
@@ -168,12 +178,14 @@ bool readFileBytes(const std::wstring& path, std::vector<char>& bytes, std::wstr
     }
 
     LARGE_INTEGER fileSize = {};
+    // GetFileSizeEx 返回 64 位文件大小，适合处理超过 4GB 的文件元信息。
     if (!GetFileSizeEx(file, &fileSize)) {
         DWORD errorCode = GetLastError();
         error = winutil::getLastErrorMessage(errorCode);
         CloseHandle(file);
         return false;
     }
+    // type 命令直接把内容输出到控制台，限制 32MB 防止误显示大文件。
     if (fileSize.QuadPart > 32ll * 1024ll * 1024ll) {
         error = L"file is too large to display";
         CloseHandle(file);
@@ -204,6 +216,7 @@ bool readFileBytes(const std::wstring& path, std::vector<char>& bytes, std::wstr
         totalRead += chunkRead;
     }
     bytes.resize(totalRead);
+    // 所有成功和失败路径都要关闭句柄，否则会造成系统资源泄漏。
     CloseHandle(file);
     return true;
 }
@@ -216,6 +229,7 @@ int Shell::run() {
         printPrompt();
 
         std::wstring line;
+        // std::getline 读取一整行命令；遇到 Ctrl+Z/输入流结束时退出循环。
         if (!std::getline(std::wcin, line)) {
             std::wcout << L"\n";
             break;
@@ -231,6 +245,7 @@ int Shell::run() {
 bool Shell::processLine(const std::wstring& line) {
     ParsedCommand command = CommandParser::parse(line);
     if (command.empty) {
+        // 空行不记录历史，也不改变上一条命令退出码。
         return running_;
     }
 
@@ -247,11 +262,13 @@ bool Shell::processLine(const std::wstring& line) {
 // 输出当前目录提示符。
 void Shell::printPrompt() const {
     std::wcout << winutil::getCurrentDirectory() << L"> ";
+    // 立即刷新，避免提示符停留在缓冲区里不显示。
     std::wcout.flush();
 }
 
 // 根据命令名调用对应内部命令；非内部命令返回 false。
 bool Shell::dispatchBuiltin(const ParsedCommand& command) {
+    // command.name 已在解析阶段转成小写，所以这里可以直接比较小写命令名。
     if (command.name == L"help" || command.name == L"?") {
         cmdHelp(command);
     } else if (command.name == L"cd" || command.name == L"chdir") {
@@ -363,6 +380,7 @@ void Shell::cmdCd(const ParsedCommand& command) {
 
     std::wstring target;
     if (equalsIgnoreCase(command.args[0], L"/d")) {
+        // 兼容 Windows cmd 的 cd /d 写法；本程序当前目录本来就可以跨盘切换。
         if (command.args.size() < 2) {
             std::wcerr << L"cd: missing path after /d\n";
             lastExitCode_ = 1;
@@ -373,6 +391,7 @@ void Shell::cmdCd(const ParsedCommand& command) {
         target = command.args[0];
     }
 
+    // cd 必须作为内部命令执行，因为当前目录是 Shell 进程自己的状态。
     if (!SetCurrentDirectoryW(target.c_str())) {
         DWORD errorCode = GetLastError();
         std::wcerr << L"cd: cannot change directory to \"" << target << L"\": "
@@ -401,6 +420,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
     wchar_t volumeName[MAX_PATH + 1] = {};
     wchar_t fileSystemName[MAX_PATH + 1] = {};
     DWORD serialNumber = 0;
+    // GetVolumeInformationW 用于显示卷标和卷序列号，模拟 Windows dir 的头部信息。
     if (!volumeRoot.empty() &&
         GetVolumeInformationW(volumeRoot.c_str(), volumeName, MAX_PATH, &serialNumber,
                               nullptr, nullptr, fileSystemName, MAX_PATH)) {
@@ -415,6 +435,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
     std::wcout << L"Directory of " << listingDir << L"\n\n";
 
     WIN32_FIND_DATAW data = {};
+    // FindFirstFileW 接收“目录\*”或“*.cpp”这类模式，并返回第一项文件信息。
     HANDLE find = FindFirstFileW(pattern.c_str(), &data);
     if (find == INVALID_HANDLE_VALUE) {
         DWORD errorCode = GetLastError();
@@ -431,6 +452,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
     do {
         std::wstring name = data.cFileName;
         if (name == L"." || name == L"..") {
+            // 跳过当前目录和父目录两个特殊项，统计结果更接近常用 dir 输出。
             continue;
         }
 
@@ -468,6 +490,7 @@ void Shell::cmdDir(const ParsedCommand& command) {
     ULARGE_INTEGER freeBytesAvailable = {};
     ULARGE_INTEGER totalBytesOnDisk = {};
     ULARGE_INTEGER totalFreeBytes = {};
+    // GetDiskFreeSpaceExW 查询磁盘剩余空间，用 totalFreeBytes 显示整个卷的剩余字节数。
     if (!volumeRoot.empty() &&
         GetDiskFreeSpaceExW(volumeRoot.c_str(), &freeBytesAvailable,
                             &totalBytesOnDisk, &totalFreeBytes)) {
@@ -499,6 +522,7 @@ void Shell::cmdHistory(const ParsedCommand& command) {
             return;
         }
         if (count < history_.size()) {
+            // history n 只显示最近 n 条，因此从 size - n 开始遍历。
             begin = history_.size() - count;
         }
     }
@@ -521,6 +545,7 @@ void Shell::cmdTasklist(const ParsedCommand& command) {
         keyword = command.args[0];
     }
 
+    // Tool Help 快照会复制当前进程列表，后续通过 Process32First/Next 遍历。
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) {
         DWORD errorCode = GetLastError();
@@ -531,6 +556,7 @@ void Shell::cmdTasklist(const ParsedCommand& command) {
     }
 
     PROCESSENTRY32W entry = {};
+    // Windows 要求调用 Process32FirstW 前先设置 dwSize，否则 API 可能失败。
     entry.dwSize = sizeof(entry);
     if (!Process32FirstW(snapshot, &entry)) {
         DWORD errorCode = GetLastError();
@@ -552,6 +578,7 @@ void Shell::cmdTasklist(const ParsedCommand& command) {
     do {
         std::wstring imageName = entry.szExeFile;
         if (!keyword.empty() && !containsIgnoreCase(imageName, keyword)) {
+            // tasklist keyword 是包含匹配，不要求进程名完全相等。
             continue;
         }
         ++shown;
@@ -563,6 +590,7 @@ void Shell::cmdTasklist(const ParsedCommand& command) {
 
     DWORD lastSnapshotError = GetLastError();
     CloseHandle(snapshot);
+    // Process32NextW 正常遍历结束时也会留下 ERROR_NO_MORE_FILES。
     if (lastSnapshotError != ERROR_NO_MORE_FILES) {
         std::wcerr << L"tasklist: enumeration stopped: "
                    << winutil::getLastErrorMessage(lastSnapshotError) << L"\n";
@@ -588,6 +616,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
 
     DWORD pid = 0;
     std::wstring imageName;
+    // 支持三种形式：taskkill 123、taskkill /PID 123、taskkill /IM name.exe。
     for (std::size_t i = 0; i < command.args.size(); ++i) {
         if (equalsIgnoreCase(command.args[i], L"/f")) {
             // /F 在真实 taskkill 中表示强制终止；本实现本来就使用 TerminateProcess。
@@ -599,6 +628,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
                 lastExitCode_ = 1;
                 return;
             }
+            // ++i 先跳到 /PID 后面的数字参数，再解析成 DWORD。
             if (!winutil::tryParsePid(command.args[++i], pid) || pid == 0) {
                 std::wcerr << L"taskkill: invalid PID \"" << command.args[i] << L"\"\n";
                 lastExitCode_ = 1;
@@ -622,6 +652,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
         }
     }
 
+    // lambda 把“按 PID 终止进程”的公共逻辑封装起来，/PID 和 /IM 都能复用。
     auto terminatePid = [&](DWORD targetPid) -> bool {
         if (targetPid == GetCurrentProcessId()) {
             std::wcerr << L"taskkill: refusing to terminate this shell process\n";
@@ -637,6 +668,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
             return false;
         }
 
+        // TerminateProcess 是强制结束进程；第二个参数是目标进程的退出码。
         if (!TerminateProcess(process, 1)) {
             DWORD errorCode = GetLastError();
             std::wcerr << L"taskkill: cannot terminate process " << targetPid << L": "
@@ -645,6 +677,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
             return false;
         }
 
+        // 等待最多 2 秒，让终止动作有机会完成，再释放进程句柄。
         WaitForSingleObject(process, 2000);
         CloseHandle(process);
         std::wcout << L"SUCCESS: terminated process with PID " << targetPid << L"\n";
@@ -652,6 +685,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
     };
 
     if (!imageName.empty()) {
+        // /IM 按进程名结束时，先扫描快照收集所有同名进程 PID。
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE) {
             DWORD errorCode = GetLastError();
@@ -675,6 +709,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
         std::vector<DWORD> pids;
         do {
             if (equalsIgnoreCase(entry.szExeFile, imageName)) {
+                // 先收集 PID，关闭快照后再逐个终止，避免边遍历边改变进程列表。
                 pids.push_back(entry.th32ProcessID);
             }
         } while (Process32NextW(snapshot, &entry));
@@ -696,6 +731,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
 
         bool allOk = true;
         for (DWORD targetPid : pids) {
+            // 保留所有终止结果：任意一个失败，最终 ERRORLEVEL 设为 1。
             allOk = terminatePid(targetPid) && allOk;
         }
         lastExitCode_ = allOk ? 0 : 1;
@@ -778,6 +814,7 @@ void Shell::cmdDel(const ParsedCommand& command) {
 
     std::wstring target = command.args[0];
     if (!winutil::hasWildcard(target)) {
+        // 没有通配符时直接删除单个文件；DeleteFileW 不能删除目录。
         if (!DeleteFileW(target.c_str())) {
             DWORD errorCode = GetLastError();
             std::wcerr << L"del: cannot delete \"" << target << L"\": "
@@ -790,6 +827,7 @@ void Shell::cmdDel(const ParsedCommand& command) {
     }
 
     WIN32_FIND_DATAW data = {};
+    // 有通配符时先枚举匹配项，再逐个删除普通文件。
     HANDLE find = FindFirstFileW(target.c_str(), &data);
     if (find == INVALID_HANDLE_VALUE) {
         DWORD errorCode = GetLastError();
@@ -805,6 +843,7 @@ void Shell::cmdDel(const ParsedCommand& command) {
     do {
         std::wstring name = data.cFileName;
         if (name == L"." || name == L".." || (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            // del 这里只删除文件，跳过目录，避免误删目录树。
             continue;
         }
         std::wstring fullPath = winutil::ensureTrailingBackslash(dir) + name;
@@ -820,6 +859,7 @@ void Shell::cmdDel(const ParsedCommand& command) {
 
     DWORD lastFindError = GetLastError();
     FindClose(find);
+    // 通配符枚举同样需要区分“正常结束”和“中途出错”。
     if (lastFindError != ERROR_NO_MORE_FILES) {
         std::wcerr << L"del: enumeration stopped: "
                    << winutil::getLastErrorMessage(lastFindError) << L"\n";
@@ -839,6 +879,7 @@ void Shell::cmdCopy(const ParsedCommand& command) {
         return;
     }
 
+    // 第三个参数 FALSE 表示如果目标已存在就覆盖，行为接近常见 copy 命令。
     if (!CopyFileW(command.args[0].c_str(), command.args[1].c_str(), FALSE)) {
         DWORD errorCode = GetLastError();
         std::wcerr << L"copy: cannot copy \"" << command.args[0] << L"\" to \""
@@ -858,6 +899,7 @@ void Shell::cmdMove(const ParsedCommand& command) {
         return;
     }
 
+    // MOVEFILE_COPY_ALLOWED 允许跨卷移动时退化为复制后删除；REPLACE_EXISTING 允许覆盖目标。
     if (!MoveFileExW(command.args[0].c_str(), command.args[1].c_str(),
                      MOVEFILE_COPY_ALLOWED | MOVEFILE_REPLACE_EXISTING)) {
         DWORD errorCode = GetLastError();
@@ -880,6 +922,7 @@ void Shell::cmdType(const ParsedCommand& command) {
 
     std::vector<char> bytes;
     std::wstring error;
+    // type 分两步：先按字节读文件，再按 UTF-8 转成宽字符输出。
     if (!readFileBytes(command.args[0], bytes, error)) {
         std::wcerr << L"type: cannot read \"" << command.args[0] << L"\": " << error << L"\n";
         lastExitCode_ = 1;
@@ -888,6 +931,7 @@ void Shell::cmdType(const ParsedCommand& command) {
 
     std::wcout << bytesToText(bytes);
     if (!bytes.empty() && bytes.back() != '\n') {
+        // 文件末尾没有换行时补一个换行，避免下一个提示符接在文件内容后面。
         std::wcout << L"\n";
     }
     lastExitCode_ = 0;
@@ -941,6 +985,7 @@ void Shell::cmdSet(const ParsedCommand& command) {
     }
 
     LPCWSTR newValue = value.empty() ? nullptr : value.c_str();
+    // SetEnvironmentVariableW 的值参数为 nullptr 时表示删除该环境变量。
     if (!SetEnvironmentVariableW(name.c_str(), newValue)) {
         DWORD errorCode = GetLastError();
         std::wcerr << L"set: cannot set \"" << name << L"\": "
@@ -954,6 +999,7 @@ void Shell::cmdSet(const ParsedCommand& command) {
 // date：显示当前本地日期。
 void Shell::cmdDate() {
     SYSTEMTIME now = {};
+    // GetLocalTime 读取本地时区时间，SYSTEMTIME 字段可直接格式化输出。
     GetLocalTime(&now);
     std::wcout << std::setfill(L'0')
                << std::setw(4) << now.wYear << L'/'
@@ -965,6 +1011,7 @@ void Shell::cmdDate() {
 // time：显示当前本地时间。
 void Shell::cmdTime() {
     SYSTEMTIME now = {};
+    // 这里只显示到秒，不处理毫秒字段。
     GetLocalTime(&now);
     std::wcout << std::setfill(L'0')
                << std::setw(2) << now.wHour << L':'
@@ -983,6 +1030,7 @@ void Shell::cmdVer() {
 
 // cls/clear：使用控制台缓冲区 API 清屏并把光标移回左上角。
 void Shell::cmdClear() {
+    // 获取标准输出句柄，后续清屏操作都作用在这个控制台缓冲区上。
     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
     if (output == INVALID_HANDLE_VALUE || output == nullptr) {
         std::wcerr << L"cls: cannot get console output handle\n";
@@ -991,6 +1039,7 @@ void Shell::cmdClear() {
     }
 
     CONSOLE_SCREEN_BUFFER_INFO info = {};
+    // 读取控制台宽高和当前属性，清屏后仍保持原来的文字属性。
     if (!GetConsoleScreenBufferInfo(output, &info)) {
         DWORD errorCode = GetLastError();
         std::wcerr << L"cls: cannot read console buffer: "
@@ -1000,8 +1049,10 @@ void Shell::cmdClear() {
     }
 
     COORD origin = {0, 0};
+    // 控制台缓冲区总格子数 = 列数 * 行数。
     DWORD cellCount = static_cast<DWORD>(info.dwSize.X) * static_cast<DWORD>(info.dwSize.Y);
     DWORD written = 0;
+    // 清屏分三步：填空格、恢复属性、把光标移动回左上角。
     if (!FillConsoleOutputCharacterW(output, L' ', cellCount, origin, &written) ||
         !FillConsoleOutputAttribute(output, info.wAttributes, cellCount, origin, &written) ||
         !SetConsoleCursorPosition(output, origin)) {
@@ -1019,6 +1070,7 @@ void Shell::cmdClear() {
 void Shell::cmdExit(const ParsedCommand& command) {
     if (!command.args.empty()) {
         DWORD code = 0;
+        // 复用 PID 的数字解析函数，确保退出码只接受无符号十进制数字。
         if (!winutil::tryParsePid(command.args[0], code)) {
             std::wcerr << L"exit: invalid exit code \"" << command.args[0] << L"\"\n";
             lastExitCode_ = 1;
@@ -1026,18 +1078,22 @@ void Shell::cmdExit(const ParsedCommand& command) {
         }
         lastExitCode_ = static_cast<int>(code);
     }
+    // 修改 running_ 后，Shell::run 的 while 循环会在本轮命令结束后退出。
     running_ = false;
 }
 
 // 执行外部命令：先直接 CreateProcessW，失败后用 cmd.exe /C 兼容执行。
 void Shell::executeExternal(const ParsedCommand& command) {
+    // CreateProcessW 要求命令行缓冲区可写，因此不能直接传 command.original.c_str()。
     std::vector<wchar_t> commandLine(command.original.begin(), command.original.end());
     commandLine.push_back(L'\0');
 
     STARTUPINFOW startupInfo = {};
+    // cb 字段必须设置为结构体大小，这是 Win32 API 识别结构体版本的常见要求。
     startupInfo.cb = sizeof(startupInfo);
     PROCESS_INFORMATION processInfo = {};
 
+    // lpApplicationName 传 nullptr 时，系统会从命令行第一个 token 推断可执行文件。
     BOOL created = CreateProcessW(
         nullptr,
         commandLine.data(),
@@ -1053,6 +1109,7 @@ void Shell::executeExternal(const ParsedCommand& command) {
     if (!created) {
         DWORD firstError = GetLastError();
         wchar_t comspecBuffer[MAX_PATH + 1] = {};
+        // ComSpec 通常指向系统 cmd.exe；取不到时使用默认路径兜底。
         DWORD comspecLength = GetEnvironmentVariableW(L"ComSpec", comspecBuffer, MAX_PATH);
         std::wstring comspec = (comspecLength > 0 && comspecLength <= MAX_PATH)
                                    ? std::wstring(comspecBuffer, comspecLength)
@@ -1082,15 +1139,18 @@ void Shell::executeExternal(const ParsedCommand& command) {
         }
     }
 
+    // Shell 采用同步执行：等待外部命令结束后再显示下一次提示符。
     WaitForSingleObject(processInfo.hProcess, INFINITE);
 
     DWORD exitCode = 0;
+    // 把外部进程退出码保存到 lastExitCode_，供 echo %ERRORLEVEL% 使用。
     if (GetExitCodeProcess(processInfo.hProcess, &exitCode)) {
         lastExitCode_ = static_cast<int>(exitCode);
     } else {
         lastExitCode_ = 1;
     }
 
+    // CreateProcessW 成功后会返回进程句柄和主线程句柄，两者都需要关闭。
     CloseHandle(processInfo.hThread);
     CloseHandle(processInfo.hProcess);
 }
