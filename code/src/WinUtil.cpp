@@ -41,6 +41,7 @@ std::wstring getLastErrorMessage(DWORD errorCode) {
 
 // 使用动态缓冲区获取当前目录，避免固定长度路径限制。
 std::wstring getCurrentDirectory() {
+    // 32 位无符号整数
     DWORD required = GetCurrentDirectoryW(0, nullptr);
     if (required == 0) {
         return L".";

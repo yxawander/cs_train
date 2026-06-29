@@ -20,6 +20,7 @@ namespace {
 // Shell.cpp 中这些匿名命名空间函数只服务本文件，避免暴露到头文件形成额外接口。
 
 // 将 WIN32_FIND_DATAW 中高低两段文件大小合成为 64 位大小。
+// WIN32_FIND_DATAW 是一个文件信息结构体，用两个 32 位整数表示一个 64 位文件大小。
 std::uint64_t fileSizeOf(const WIN32_FIND_DATAW& data) {
     return (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) |
            static_cast<std::uint64_t>(data.nFileSizeLow);
@@ -60,17 +61,20 @@ bool parseUnsigned(const std::wstring& text, std::size_t& value) {
 // 读取环境变量值，并通过 found 区分“空值”和“不存在”。
 std::wstring getEnvironmentVariableValue(const std::wstring& name, bool& found) {
     found = false;
+    // 询问缓冲区大小。如果变量存在且有内容，Windows 会返回需要的字符数。
     DWORD required = GetEnvironmentVariableW(name.c_str(), nullptr, 0);
     if (required == 0) {
         return L"";
     }
 
+    // 分配缓冲区，读取环境变量值。如果读取失败或缓冲区不足，返回空字符串。
     std::wstring buffer(required, L'\0');
     DWORD written = GetEnvironmentVariableW(name.c_str(), buffer.data(), required);
     if (written == 0 || written >= required) {
         return L"";
     }
 
+    // Windows 返回的字符串不包含终止空字符，调整缓冲区大小后返回。
     buffer.resize(written);
     found = true;
     return buffer;
@@ -180,7 +184,14 @@ bool readFileBytes(const std::wstring& path, std::vector<char>& bytes, std::wstr
     DWORD totalRead = 0;
     while (totalRead < bytes.size()) {
         DWORD chunkRead = 0;
+        // 剩余未读字节数 和 64KB 之间取较小值
         DWORD toRead = static_cast<DWORD>(std::min<std::size_t>(bytes.size() - totalRead, 64 * 1024));
+        // ReadFile 参数含义：
+        // file：文件句柄。
+        // bytes.data() + totalRead：本轮读取的数据写入缓冲区的位置。
+        // toRead：希望本轮最多读取多少字节。
+        // &chunkRead：系统实际读取到的字节数。
+        // nullptr：使用同步读取，不使用 OVERLAPPED 异步结构。
         if (!ReadFile(file, bytes.data() + totalRead, toRead, &chunkRead, nullptr)) {
             DWORD errorCode = GetLastError();
             error = winutil::getLastErrorMessage(errorCode);
