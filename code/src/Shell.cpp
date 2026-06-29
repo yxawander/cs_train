@@ -413,11 +413,16 @@ void Shell::cmdDir(const ParsedCommand& command) {
 
     std::wstring target = command.args.empty() ? L"." : command.args[0];
     // 目录路径会转换成“目录\*”，通配符路径保持用户输入原样。
+    // 搜索模式
     std::wstring pattern = winutil::makeDirSearchPattern(target);
+    // dir 输出中显示的目录路径
     std::wstring listingDir = winutil::getListingDirectory(target);
+    // 获取卷根目录
     std::wstring volumeRoot = winutil::getVolumeRoot(listingDir);
 
+    // Windows
     wchar_t volumeName[MAX_PATH + 1] = {};
+    // 文件系统名称
     wchar_t fileSystemName[MAX_PATH + 1] = {};
     DWORD serialNumber = 0;
     // GetVolumeInformationW 用于显示卷标和卷序列号，模拟 Windows dir 的头部信息。
@@ -490,6 +495,9 @@ void Shell::cmdDir(const ParsedCommand& command) {
     ULARGE_INTEGER freeBytesAvailable = {};
     ULARGE_INTEGER totalBytesOnDisk = {};
     ULARGE_INTEGER totalFreeBytes = {};
+    // freeBytesAvailable：当前用户可用空间。
+    // totalBytesOnDisk：磁盘总空间。
+    // totalFreeBytes：磁盘总剩余空间。
     // GetDiskFreeSpaceExW 查询磁盘剩余空间，用 totalFreeBytes 显示整个卷的剩余字节数。
     if (!volumeRoot.empty() &&
         GetDiskFreeSpaceExW(volumeRoot.c_str(), &freeBytesAvailable,
@@ -545,7 +553,7 @@ void Shell::cmdTasklist(const ParsedCommand& command) {
         keyword = command.args[0];
     }
 
-    // Tool Help 快照会复制当前进程列表，后续通过 Process32First/Next 遍历。
+    // 创建进程快照，Tool Help 快照会复制当前进程列表，后续通过 Process32First/Next 遍历。
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) {
         DWORD errorCode = GetLastError();
@@ -555,6 +563,7 @@ void Shell::cmdTasklist(const ParsedCommand& command) {
         return;
     }
 
+    // PROCESSENTRY32W 是进程信息结构体，包含 PID、父进程 PID、线程数和可执行文件名等。
     PROCESSENTRY32W entry = {};
     // Windows 要求调用 Process32FirstW 前先设置 dwSize，否则 API 可能失败。
     entry.dwSize = sizeof(entry);
@@ -622,6 +631,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
             // /F 在真实 taskkill 中表示强制终止；本实现本来就使用 TerminateProcess。
             continue;
         }
+        // taskkill /PID 123 这种形式，/PID 后面必须跟数字参数。
         if (equalsIgnoreCase(command.args[i], L"/pid")) {
             if (i + 1 >= command.args.size()) {
                 std::wcerr << L"taskkill: missing PID after /PID\n";
@@ -636,6 +646,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
             }
             continue;
         }
+        // taskkill /IM name.exe 这种形式，/IM 后面必须跟进程名参数。
         if (equalsIgnoreCase(command.args[i], L"/im")) {
             if (i + 1 >= command.args.size()) {
                 std::wcerr << L"taskkill: missing image name after /IM\n";
@@ -645,6 +656,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
             imageName = command.args[++i];
             continue;
         }
+        // taskkill 123 这种形式，直接把第一个参数当作 PID。
         if (!winutil::tryParsePid(command.args[i], pid) || pid == 0) {
             std::wcerr << L"taskkill: unknown argument or invalid PID \"" << command.args[i] << L"\"\n";
             lastExitCode_ = 1;
@@ -654,6 +666,7 @@ void Shell::cmdTaskkill(const ParsedCommand& command) {
 
     // lambda 把“按 PID 终止进程”的公共逻辑封装起来，/PID 和 /IM 都能复用。
     auto terminatePid = [&](DWORD targetPid) -> bool {
+        // taskkill 不允许终止当前 Shell 进程，否则会导致 Shell 自己退出。
         if (targetPid == GetCurrentProcessId()) {
             std::wcerr << L"taskkill: refusing to terminate this shell process\n";
             return false;
